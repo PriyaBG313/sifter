@@ -76,7 +76,7 @@ type Syscall struct {
 func (syscall *Syscall) GetFDIndex() []int {
 	var FDIdx []int
 	for i, arg := range syscall.def.Args {
-		if _, ok := arg.(*prog.ResourceType); ok {
+		if _, ok := arg.Type.(*prog.ResourceType); ok {
 			FDIdx = append(FDIdx, i)
 		}
 	}
@@ -99,7 +99,7 @@ func findArrayLengthOffset(parent *ArgMap, arrayName string) (bool, uint64) {
 	if parentStructArg, isStructArg := parent.arg.(*prog.StructType); isStructArg {
 		var offset uint64
 		for _, field := range parentStructArg.Fields {
-			if lenArg, isLenArg := field.(*prog.LenType); isLenArg && parent.name+"_"+lenArg.Path[0] == arrayName {
+			if lenArg, isLenArg := field.Type.(*prog.LenType); isLenArg && parent.name+"_"+lenArg.Path[0] == arrayName {
 				return true, parent.offset + offset
 			}
 			offset += field.Size()
@@ -150,11 +150,11 @@ func (syscall *Syscall) AddVlrMap(arg *prog.ArrayType, parentArgMap *ArgMap, arg
 	if ok, lenOffset := findArrayLengthOffset(parentArgMap, argName); ok {
 		newVlrMap.lenOffset = lenOffset
 	}
-	for _, record := range arg.Type.(*prog.UnionType).Fields {
-		structArg, _ := record.(*prog.StructType)
+	for _, record := range arg.Elem.(*prog.UnionType).Fields {
+		structArg, _ := record.Type.(*prog.StructType)
 		newVlrRecord := &VlrRecord {
-			header: structArg.Fields[0].(*prog.ConstType).Val,
-			name: structArg.FldName,
+			header: structArg.Fields[0].Type.(*prog.ConstType).Val,
+			name: structArg.Name(),
 			size: structArg.Size(),
 			arg: structArg,
 		}
@@ -495,7 +495,7 @@ func (te *TraceEvent) GetFD() (int, uint64) {
 	}
 
 	for i, arg := range te.syscall.def.Args {
-		if _, ok := arg.(*prog.ResourceType); ok {
+		if _, ok := arg.Type.(*prog.ResourceType); ok {
 			te.fdIdxCached = i
 			te.fdCached = binary.LittleEndian.Uint64(te.data[i*8:i*8+8])
 			return te.fdIdxCached, te.fdCached
@@ -510,7 +510,7 @@ func (te *TraceEvent) GetFD2(name string) (int, uint64) {
 	}
 
 	for i, arg := range te.syscall.def.Args {
-		if res, ok := arg.(*prog.ResourceType); ok && res.FldName == name {
+		if res, ok := arg.Type.(*prog.ResourceType); ok && res.Name() == name {
 			return i, binary.LittleEndian.Uint64(te.data[i*8:i*8+8])
 		}
 	}
