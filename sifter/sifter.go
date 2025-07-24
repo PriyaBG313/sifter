@@ -1356,7 +1356,8 @@ func (sifter *Sifter) AddStructToSection(structure *prog.StructType, s *bytes.Bu
 			//fmt.Fprintf(s, "    //arg %v %v %v %v %v\n", arg, arg.Name(), arg.FieldName(), arg.Size(), tt)
 			fieldType = fmt.Sprintf("struct %v", tt.String())
 		case *prog.UnionType:
-			fieldType = fmt.Sprintf("uniontype")
+			//fieldType = fmt.Sprintf("uniontype")
+			fmt.Fprintf(s, "    union %v", tt.String())
 //			fmt.Fprintf(s, "    //arg %v %v %v %v %v\n", arg, arg.Name(), arg.FieldName(), arg.Size(), tt)
 		default:
 			fieldType = fmt.Sprintf("uint%v_t", 8*tt.Size())
