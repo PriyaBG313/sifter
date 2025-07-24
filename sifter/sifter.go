@@ -633,11 +633,11 @@ func (sifter *Sifter) GenerateArgTracer(s *bytes.Buffer, syscall *Syscall, arg p
 					elements.RangeBegin = 512
 					elements.RangeEnd = 512
 				} else {
-					if t.Elem.Name() == "prfcnt_enum_item" || t.Elem.Name() == "prfcnt_request_item" {
-						elements.TypeCommon = prog.TypeCommon{TypeName: "array", TypeSize: 1 * 10}
-					} else {
+					//if t.Elem.Name() == "prfcnt_enum_item" || t.Elem.Name() == "prfcnt_request_item" {
+					//	elements.TypeCommon = prog.TypeCommon{TypeName: "array", TypeSize: 1 * 10}
+					//} else {
 						elements.TypeCommon = prog.TypeCommon{TypeName: "array", TypeSize: t.Elem.Size() * 10}
-					}
+					//}
 					elements.Elem = t.Elem
 					elements.RangeBegin = 10
 					elements.RangeEnd = 10
@@ -1817,27 +1817,28 @@ func IsVarLenRecord(arg *prog.ArrayType) (bool, int, []uint64) {
 	headerSize := -1
 	headers := []uint64{}
 
-	var targetUnion *prog.UnionType
+	//var targetUnion *prog.UnionType
 
 	unions, ok := arg.Elem.(*prog.UnionType)
 	if !ok {
 		goto isNotVLR
-	} else {
-		targetUnion = unions 
 	}
+	//} else {
+	//	targetUnion = unions 
+	//}
 	
-	if structType, ok := arg.Elem.(*prog.StructType); ok {
-		for _, field := range structType.Fields {
-			if unions2, isUnion := field.Type.(*prog.UnionType); isUnion {
-				if isUnion {
-					targetUnion=unions2
-					break 
-				}
-			}
-		}
-	}
+	//if structType, ok := arg.Elem.(*prog.StructType); ok {
+	//	for _, field := range structType.Fields {
+	//		if unions2, isUnion := field.Type.(*prog.UnionType); isUnion {
+	//			if isUnion {
+	//				targetUnion=unions2
+	//				break 
+	//			}
+	//		}
+	//	}
+	//}
 
-	for _, t := range targetUnion.Fields {
+	for _, t := range unions.Fields {
 		if structure, ok := t.Type.(*prog.StructType); ok {
 			if header, ok := structure.Fields[0].Type.(*prog.ConstType); ok {
 				if headerSize == -1 {
