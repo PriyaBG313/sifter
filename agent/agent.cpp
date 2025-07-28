@@ -1,5 +1,7 @@
 #include <bpf/BpfMap.h>
 #include <bpf/BpfUtils.h>
+#include <bpf/bpf.h>
+#include <libbpf.h>
 #include <libbpf_android.h>
 #include <linux/android/binder.h>
 #include <atomic>
@@ -21,6 +23,7 @@
 #include <unistd.h>
 #include <sys/ptrace.h>
 #include <sys/wait.h>
+#include <string>
 
 #include "tracer_id.h"
 
@@ -535,7 +538,8 @@ public:
         }
         std::string path = "/sys/fs/bpf/prog_" + m_name + probe_name;
         if (access(path.c_str(), 0) != 0) {
-            int ret = android::bpf::loadProg(path.c_str());
+	    bool isCritical = true;
+            int ret = android::bpf::loadProg(path.c_str(), &isCritical);
             if (ret) {
                 std::cerr << path << " does not exist and attempt to load it failed\n";
                 return ret;
@@ -582,7 +586,7 @@ public:
         for (auto &p : m_progs) {
             if (p.type == 0 || p.type == 1) {
                 bpf_probe_attach_type type = p.type == 1? BPF_PROBE_ENTRY : BPF_PROBE_RETURN;
-                int ret = bpf_attach_kprobe(p.fd, type, p.event.c_str(), p.entry.c_str(), 0);
+                int ret = bpf_attach_kprobe(p.fd, type, p.event.c_str(), p.entry.c_str(), 0, 10);
                 if (ret < 0) {
                     std::cout << "bpf_attach_kprobe return " << ret << " " << errno << "\n";
                     return -1;
@@ -603,7 +607,7 @@ public:
                     return -1;
                 }
 
-                int ret = bpf_attach_uprobe(p.fd, type, p.event.c_str(), path.c_str(), off, -1);
+                int ret = bpf_attach_uprobe(p.fd, type, p.event.c_str(), path.c_str(), off, -1, 0);
                 if (ret < 0) {
                     std::cout << "bpf_attach_uprobe return " << ret << " " << errno << "\n";
                     return -1;
@@ -1171,12 +1175,12 @@ int main(int argc, char *argv[]) {
                 std::cout << "-v verbose  : verbosity [default=0]\n";
                 std::cout << "-h          : helps\n";
                 return 0;
-            case 'i': log_interval = atoi(optarg); break;
-            case 'v': verbose = atoi(optarg); break;
-            case 'c': config_file = optarg; break;
-            case 'r': recover = atoi(optarg) > 0; break;
-            case 'o': log_file = optarg; break;
-            case 'p': target_prog = optarg; break;
+	    case 'i': if (optarg) log_interval = std::stoi(std::string(optarg)); break;
+	    case 'v': if (optarg) verbose = std::stoi(std::string(optarg)); break;
+            case 'c': if (optarg) config_file = optarg; break;
+	    case 'r': if (optarg) recover = std::stoi(std::string(optarg)) > 0; break;
+            case 'o': if (optarg) log_file = optarg; break;
+            case 'p': if (optarg) target_prog = optarg; break;
             case '?':
                 if (optopt == 'c')
                     fprintf(stderr, "Option -%c requires an argument.\n", optopt);
