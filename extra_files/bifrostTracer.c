@@ -2,10 +2,65 @@
 #include <linux/bpf.h>
 #include <linux/unistd.h>
 #include <linux/ptrace.h>
-#include <bpf_helpers.h>
+#include <bpf/bpf_helpers.h>
 #include <linux/errno.h>
 #include <sys/types.h>
 #include "tracer_id.h"
+#include <stdbool.h>
+
+#define DEFINE_BPF_MAP_NO_ACCESSORS(the_map, TYPE, KeyType, ValueType, num_entries) \
+struct {									 \
+	__uint(type, BPF_MAP_TYPE_##TYPE);                                       \
+        __type(key, KeyType);                                              	 \
+        __type(value, ValueType);                                          	 \
+        __uint(max_entries, num_entries);                                        \
+        } the_map SEC(".maps");							 \
+
+
+#define DEFINE_BPF_MAP_N(the_map, TYPE, KeyType, ValueType, num_entries)         \
+	DEFINE_BPF_MAP_NO_ACCESSORS(the_map, TYPE, KeyType, ValueType, num_entries)	\
+static inline __always_inline __unused ValueType* bpf_##the_map##_lookup_elem(               \
+            const KeyType* k) {                                                                  \
+        return bpf_map_lookup_elem(&the_map, k);                                          \
+    };                                                                                           \
+                                                                                                 \
+    static inline __always_inline __unused int bpf_##the_map##_update_elem(                      \
+            const KeyType* k, const ValueType* v, unsigned long long flags) {                    \
+        return bpf_map_update_elem(&the_map, k, v, flags);                                \
+    };                                                                                           \
+                                                                                                 \
+    static inline __always_inline __unused int bpf_##the_map##_delete_elem(const KeyType* k) {   \
+        return bpf_map_delete_elem(&the_map, k);                                          \
+    };
+
+
+#define DEFINE_BPF_MAP_NO_ACCESSORS_F(the_map, TYPE, KeyType, ValueType, num_entries, flag) \
+struct {                                                                        \
+        __uint(type, BPF_MAP_TYPE_##TYPE);                                      \
+        __type(key, KeyType);                                              	\
+        __type(value, ValueType);                                          	\
+        __uint(max_entries, num_entries);                                       \
+        __uint(map_flags, flag);						\
+	} the_map SEC(".maps");							\
+
+
+#define DEFINE_BPF_MAP_F(the_map, TYPE, KeyType, ValueType, num_entries, flag)         \
+        DEFINE_BPF_MAP_NO_ACCESSORS_F(the_map, TYPE, KeyType, ValueType, num_entries, flag) \
+	static inline __always_inline __unused ValueType* bpf_##the_map##_lookup_elem(               \
+            const KeyType* k) {                                                                  \
+        return bpf_map_lookup_elem(&the_map, k);                                          \
+    };                                                                                           \
+                                                                                                 \
+    static inline __always_inline __unused int bpf_##the_map##_update_elem(                      \
+            const KeyType* k, const ValueType* v, unsigned long long flags) {                    \
+        return bpf_map_update_elem(&the_map, k, v, flags);                                \
+    };                                                                                           \
+                                                                                                 \
+    static inline __always_inline __unused int bpf_##the_map##_delete_elem(const KeyType* k) {   \
+        return bpf_map_delete_elem(&the_map, k);                                          \
+    };
+
+
 
 struct base_jd_udata {
     uint64_t blob[2];
@@ -541,216 +596,218 @@ typedef struct {
 	char chars[16];
 } comm_string;
 
-DEFINE_BPF_MAP(syscall_fd_mask, ARRAY, int, uint8_t, 461);
-DEFINE_BPF_MAP(traced_tgid_map, HASH, uint32_t, uint32_t, 1024);
-DEFINE_BPF_MAP(traced_pid_tgid_comm_map, HASH, uint64_t, comm_string, 65536);
-DEFINE_BPF_MAP(target_prog_comm_map, HASH, comm_string, uint32_t, 128);
-DEFINE_BPF_MAP(comm_setting_pid_tgid_map, HASH, uint64_t, int, 1024);
+DEFINE_BPF_MAP_N(syscall_fd_mask, ARRAY, int, uint8_t, 461);
+DEFINE_BPF_MAP_N(traced_tgid_map, HASH, uint32_t, uint32_t, 1024);
+DEFINE_BPF_MAP_N(traced_pid_tgid_comm_map, HASH, uint64_t, comm_string, 65536);
+DEFINE_BPF_MAP_N(target_prog_comm_map, HASH, comm_string, uint32_t, 128);
+DEFINE_BPF_MAP_N(comm_setting_pid_tgid_map, HASH, uint64_t, int, 1024);
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_BUFFER_LIVENESS_UPDATE_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_BUFFER_LIVENESS_UPDATE_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_BUFFER_LIVENESS_UPDATE_arg, ARRAY, int, struct kbase_ioctl_buffer_liveness_update, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_BUFFER_LIVENESS_UPDATE_arg_live_ranges_address, ARRAY, int, struct ioctl_KBASE_IOCTL_BUFFER_LIVENESS_UPDATE_arg_live_ranges_address_buf, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_BUFFER_LIVENESS_UPDATE_arg_buffer_va_address, ARRAY, int, struct ioctl_KBASE_IOCTL_BUFFER_LIVENESS_UPDATE_arg_buffer_va_address_buf, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_BUFFER_LIVENESS_UPDATE_arg_buffer_sizes_address, ARRAY, int, struct ioctl_KBASE_IOCTL_BUFFER_LIVENESS_UPDATE_arg_buffer_sizes_address_buf, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_BUFFER_LIVENESS_UPDATE_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_BUFFER_LIVENESS_UPDATE_arg, ARRAY, int, struct kbase_ioctl_buffer_liveness_update, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_BUFFER_LIVENESS_UPDATE_arg_live_ranges_address, ARRAY, int, struct ioctl_KBASE_IOCTL_BUFFER_LIVENESS_UPDATE_arg_live_ranges_address_buf, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_BUFFER_LIVENESS_UPDATE_arg_buffer_va_address, ARRAY, int, struct ioctl_KBASE_IOCTL_BUFFER_LIVENESS_UPDATE_arg_buffer_va_address_buf, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_BUFFER_LIVENESS_UPDATE_arg_buffer_sizes_address, ARRAY, int, struct ioctl_KBASE_IOCTL_BUFFER_LIVENESS_UPDATE_arg_buffer_sizes_address_buf, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_CONTEXT_PRIORITY_CHECK_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_CONTEXT_PRIORITY_CHECK_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_CONTEXT_PRIORITY_CHECK_arg, ARRAY, int, struct kbase_ioctl_context_priority_check, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_CONTEXT_PRIORITY_CHECK_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_CONTEXT_PRIORITY_CHECK_arg, ARRAY, int, struct kbase_ioctl_context_priority_check, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_CS_CPU_QUEUE_DUMP_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_CS_CPU_QUEUE_DUMP_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_CS_CPU_QUEUE_DUMP_arg, ARRAY, int, struct kbase_ioctl_cs_cpu_queue_info, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_CS_CPU_QUEUE_DUMP_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_CS_CPU_QUEUE_DUMP_arg, ARRAY, int, struct kbase_ioctl_cs_cpu_queue_info, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_CS_EVENT_SIGNAL_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_CS_EVENT_SIGNAL_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_CS_EVENT_SIGNAL_ent, ARRAY, int, sys_enter_ent_t, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_CS_GET_GLB_IFACE_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_CS_GET_GLB_IFACE_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_CS_GET_GLB_IFACE_arg, ARRAY, int, struct kbase_ioctl_cs_get_glb_iface, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_CS_GET_GLB_IFACE_arg_groups_ptr, ARRAY, int, uint64_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_CS_GET_GLB_IFACE_arg_streams_ptr, ARRAY, int, uint64_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_CS_GET_GLB_IFACE_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_CS_GET_GLB_IFACE_arg, ARRAY, int, struct kbase_ioctl_cs_get_glb_iface, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_CS_GET_GLB_IFACE_arg_groups_ptr, ARRAY, int, uint64_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_CS_GET_GLB_IFACE_arg_streams_ptr, ARRAY, int, uint64_t, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_CS_QUEUE_BIND_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_CS_QUEUE_BIND_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_CS_QUEUE_BIND_arg, ARRAY, int, struct kbase_ioctl_cs_queue_bind, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_CS_QUEUE_BIND_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_CS_QUEUE_BIND_arg, ARRAY, int, struct kbase_ioctl_cs_queue_bind, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_CS_QUEUE_GROUP_CREATE_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_CS_QUEUE_GROUP_CREATE_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_CS_QUEUE_GROUP_CREATE_arg, ARRAY, int, struct kbase_ioctl_cs_queue_group_create, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_CS_QUEUE_GROUP_CREATE_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_CS_QUEUE_GROUP_CREATE_arg, ARRAY, int, struct kbase_ioctl_cs_queue_group_create, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_CS_QUEUE_GROUP_CREATE_1_6_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_CS_QUEUE_GROUP_CREATE_1_6_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_CS_QUEUE_GROUP_CREATE_1_6_arg, ARRAY, int, struct kbase_ioctl_cs_queue_group_create_1_6, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_CS_QUEUE_GROUP_CREATE_1_6_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_CS_QUEUE_GROUP_CREATE_1_6_arg, ARRAY, int, struct kbase_ioctl_cs_queue_group_create_1_6, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_CS_QUEUE_GROUP_TERMINATE_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_CS_QUEUE_GROUP_TERMINATE_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_CS_QUEUE_GROUP_TERMINATE_arg, ARRAY, int, struct kbase_ioctl_cs_queue_group_terminate, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_CS_QUEUE_GROUP_TERMINATE_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_CS_QUEUE_GROUP_TERMINATE_arg, ARRAY, int, struct kbase_ioctl_cs_queue_group_terminate, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_CS_QUEUE_KICK_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_CS_QUEUE_KICK_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_CS_QUEUE_KICK_arg, ARRAY, int, struct kbase_ioctl_cs_queue_kick, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_CS_QUEUE_KICK_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_CS_QUEUE_KICK_arg, ARRAY, int, struct kbase_ioctl_cs_queue_kick, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_CS_QUEUE_REGISTER_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_CS_QUEUE_REGISTER_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_CS_QUEUE_REGISTER_arg, ARRAY, int, struct base_ioctl_cs_queue_register, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_CS_QUEUE_REGISTER_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_CS_QUEUE_REGISTER_arg, ARRAY, int, struct base_ioctl_cs_queue_register, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_CS_QUEUE_REGISTER_EX_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_CS_QUEUE_REGISTER_EX_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_CS_QUEUE_REGISTER_EX_arg, ARRAY, int, struct kbase_ioctl_cs_queue_register_ex, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_CS_QUEUE_REGISTER_EX_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_CS_QUEUE_REGISTER_EX_arg, ARRAY, int, struct kbase_ioctl_cs_queue_register_ex, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_CS_QUEUE_TERMINATE_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_CS_QUEUE_TERMINATE_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_CS_QUEUE_TERMINATE_arg, ARRAY, int, struct kbase_ioctl_cs_queue_terminate, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_CS_QUEUE_TERMINATE_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_CS_QUEUE_TERMINATE_arg, ARRAY, int, struct kbase_ioctl_cs_queue_terminate, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_CS_TILER_HEAP_INIT_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_CS_TILER_HEAP_INIT_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_CS_TILER_HEAP_INIT_arg, ARRAY, int, struct kbase_ioctl_cs_tiler_heap_init, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_CS_TILER_HEAP_INIT_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_CS_TILER_HEAP_INIT_arg, ARRAY, int, struct kbase_ioctl_cs_tiler_heap_init, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_CS_TILER_HEAP_INIT_1_13_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_CS_TILER_HEAP_INIT_1_13_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_CS_TILER_HEAP_INIT_1_13_arg, ARRAY, int, struct kbase_ioctl_cs_tiler_heap_init_1_13, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_CS_TILER_HEAP_INIT_1_13_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_CS_TILER_HEAP_INIT_1_13_arg, ARRAY, int, struct kbase_ioctl_cs_tiler_heap_init_1_13, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_CS_TILER_HEAP_TERM_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_CS_TILER_HEAP_TERM_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_CS_TILER_HEAP_TERM_arg, ARRAY, int, struct kbase_ioctl_cs_tiler_heap_term, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_CS_TILER_HEAP_TERM_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_CS_TILER_HEAP_TERM_arg, ARRAY, int, struct kbase_ioctl_cs_tiler_heap_term, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_DISJOINT_QUERY_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_DISJOINT_QUERY_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_DISJOINT_QUERY_arg, ARRAY, int, struct kbase_ioctl_disjoint_query, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_DISJOINT_QUERY_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_DISJOINT_QUERY_arg, ARRAY, int, struct kbase_ioctl_disjoint_query, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_FENCE_VALIDATE_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_FENCE_VALIDATE_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_FENCE_VALIDATE_arg, ARRAY, int, struct kbase_ioctl_fence_validate, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_FENCE_VALIDATE_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_FENCE_VALIDATE_arg, ARRAY, int, struct kbase_ioctl_fence_validate, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_GET_CONTEXT_ID_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_GET_CONTEXT_ID_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_GET_CONTEXT_ID_arg, ARRAY, int, struct kbase_ioctl_get_context_id, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_GET_CONTEXT_ID_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_GET_CONTEXT_ID_arg, ARRAY, int, struct kbase_ioctl_get_context_id, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_GET_CPU_GPU_TIMEINFO_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_GET_CPU_GPU_TIMEINFO_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_GET_CPU_GPU_TIMEINFO_arg, ARRAY, int, struct kbase_ioctl_get_cpu_gpu_timeinfo, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_GET_CPU_GPU_TIMEINFO_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_GET_CPU_GPU_TIMEINFO_arg, ARRAY, int, struct kbase_ioctl_get_cpu_gpu_timeinfo, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_GET_DDK_VERSION_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_GET_DDK_VERSION_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_GET_DDK_VERSION_arg, ARRAY, int, struct kbase_ioctl_get_ddk_version, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_GET_DDK_VERSION_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_GET_DDK_VERSION_arg, ARRAY, int, struct kbase_ioctl_get_ddk_version, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_GET_GPUPROPS_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_GET_GPUPROPS_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_GET_GPUPROPS_arg, ARRAY, int, struct kbase_ioctl_get_gpuprops, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_GET_GPUPROPS_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_GET_GPUPROPS_arg, ARRAY, int, struct kbase_ioctl_get_gpuprops, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_HWCNT_CLEAR_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_HWCNT_CLEAR_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_HWCNT_CLEAR_ent, ARRAY, int, sys_enter_ent_t, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_HWCNT_DUMP_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_HWCNT_DUMP_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_HWCNT_DUMP_ent, ARRAY, int, sys_enter_ent_t, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_HWCNT_ENABLE_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_HWCNT_ENABLE_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_HWCNT_ENABLE_arg, ARRAY, int, struct kbase_ioctl_hwcnt_enable, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_HWCNT_ENABLE_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_HWCNT_ENABLE_arg, ARRAY, int, struct kbase_ioctl_hwcnt_enable, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_HWCNT_READER_SETUP_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_HWCNT_READER_SETUP_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_HWCNT_READER_SETUP_arg, ARRAY, int, struct kbase_ioctl_hwcnt_reader_setup, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_HWCNT_READER_SETUP_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_HWCNT_READER_SETUP_arg, ARRAY, int, struct kbase_ioctl_hwcnt_reader_setup, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_HWCNT_SET_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_HWCNT_SET_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_HWCNT_SET_arg, ARRAY, int, struct kbase_ioctl_hwcnt_values, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_HWCNT_SET_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_HWCNT_SET_arg, ARRAY, int, struct kbase_ioctl_hwcnt_values, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_JOB_SUBMIT_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_JOB_SUBMIT_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_JOB_SUBMIT_arg, ARRAY, int, struct kbase_ioctl_job_submit, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_JOB_SUBMIT_arg_addr, ARRAY, int, struct ioctl_KBASE_IOCTL_JOB_SUBMIT_arg_addr_buf, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_JOB_SUBMIT_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_JOB_SUBMIT_arg, ARRAY, int, struct kbase_ioctl_job_submit, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_JOB_SUBMIT_arg_addr, ARRAY, int, struct ioctl_KBASE_IOCTL_JOB_SUBMIT_arg_addr_buf, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_KCPU_QUEUE_CREATE_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_KCPU_QUEUE_CREATE_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_KCPU_QUEUE_CREATE_arg, ARRAY, int, struct kbase_ioctl_kcpu_queue_new, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_KCPU_QUEUE_CREATE_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_KCPU_QUEUE_CREATE_arg, ARRAY, int, struct kbase_ioctl_kcpu_queue_new, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_KCPU_QUEUE_DELETE_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_KCPU_QUEUE_DELETE_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_KCPU_QUEUE_DELETE_arg, ARRAY, int, struct kbase_ioctl_kcpu_queue_delete, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_KCPU_QUEUE_DELETE_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_KCPU_QUEUE_DELETE_arg, ARRAY, int, struct kbase_ioctl_kcpu_queue_delete, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_KCPU_QUEUE_ENQUEUE_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_KCPU_QUEUE_ENQUEUE_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_KCPU_QUEUE_ENQUEUE_arg, ARRAY, int, struct kbase_ioctl_kcpu_queue_enqueue, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_KCPU_QUEUE_ENQUEUE_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_KCPU_QUEUE_ENQUEUE_arg, ARRAY, int, struct kbase_ioctl_kcpu_queue_enqueue, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_KINSTR_PRFCNT_ENUM_INFO_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_KINSTR_PRFCNT_ENUM_INFO_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_KINSTR_PRFCNT_ENUM_INFO_arg, ARRAY, int, struct kbase_ioctl_kinstr_prfcnt_enum_info, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_KINSTR_PRFCNT_ENUM_INFO_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_KINSTR_PRFCNT_ENUM_INFO_arg, ARRAY, int, struct kbase_ioctl_kinstr_prfcnt_enum_info, 4096)
 //priya
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_KINSTR_PRFCNT_ENUM_INFO_arg_info_list_ptr, ARRAY, int, struct ioctl_KBASE_IOCTL_KINSTR_PRFCNT_ENUM_INFO_arg_info_list_ptr_buf, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_KINSTR_PRFCNT_SETUP_arg_requests_ptr, ARRAY, int, struct ioctl_KBASE_IOCTL_KINSTR_PRFCNT_SETUP_arg_requests_ptr_buf, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_KINSTR_PRFCNT_ENUM_INFO_arg_info_list_ptr, ARRAY, int, struct ioctl_KBASE_IOCTL_KINSTR_PRFCNT_ENUM_INFO_arg_info_list_ptr_buf, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_KINSTR_PRFCNT_SETUP_arg_requests_ptr, ARRAY, int, struct ioctl_KBASE_IOCTL_KINSTR_PRFCNT_SETUP_arg_requests_ptr_buf, 4096)
 //
 	
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_KINSTR_PRFCNT_SETUP_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_KINSTR_PRFCNT_SETUP_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_KINSTR_PRFCNT_SETUP_arg, ARRAY, int, struct kbase_ioctl_kinstr_prfcnt_setup, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_KINSTR_PRFCNT_SETUP_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_KINSTR_PRFCNT_SETUP_arg, ARRAY, int, struct kbase_ioctl_kinstr_prfcnt_setup, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_MEM_ALIAS_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_MEM_ALIAS_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_MEM_ALIAS_arg, ARRAY, int, struct kbase_ioctl_mem_alias, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_MEM_ALIAS_arg_aliasing_info, ARRAY, int, struct ioctl_KBASE_IOCTL_MEM_ALIAS_arg_aliasing_info_buf, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_MEM_ALIAS_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_MEM_ALIAS_arg, ARRAY, int, struct kbase_ioctl_mem_alias, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_MEM_ALIAS_arg_aliasing_info, ARRAY, int, struct ioctl_KBASE_IOCTL_MEM_ALIAS_arg_aliasing_info_buf, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_MEM_ALLOC_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_MEM_ALLOC_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_MEM_ALLOC_arg, ARRAY, int, struct kbase_ioctl_mem_alloc, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_MEM_ALLOC_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_MEM_ALLOC_arg, ARRAY, int, struct kbase_ioctl_mem_alloc, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_MEM_ALLOC_EX_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_MEM_ALLOC_EX_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_MEM_ALLOC_EX_arg, ARRAY, int, struct kbase_ioctl_mem_alloc_ex, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_MEM_ALLOC_EX_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_MEM_ALLOC_EX_arg, ARRAY, int, struct kbase_ioctl_mem_alloc_ex, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_MEM_COMMIT_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_MEM_COMMIT_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_MEM_COMMIT_arg, ARRAY, int, struct kbase_ioctl_mem_commit, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_MEM_COMMIT_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_MEM_COMMIT_arg, ARRAY, int, struct kbase_ioctl_mem_commit, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_MEM_EXEC_INIT_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_MEM_EXEC_INIT_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_MEM_EXEC_INIT_arg, ARRAY, int, struct kbase_ioctl_mem_exec_init, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_MEM_EXEC_INIT_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_MEM_EXEC_INIT_arg, ARRAY, int, struct kbase_ioctl_mem_exec_init, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_MEM_FIND_CPU_OFFSET_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_MEM_FIND_CPU_OFFSET_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_MEM_FIND_CPU_OFFSET_arg, ARRAY, int, struct kbase_ioctl_mem_find_cpu_offset, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_MEM_FIND_CPU_OFFSET_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_MEM_FIND_CPU_OFFSET_arg, ARRAY, int, struct kbase_ioctl_mem_find_cpu_offset, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_MEM_FIND_GPU_START_AND_OFFSET_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_MEM_FIND_GPU_START_AND_OFFSET_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_MEM_FIND_GPU_START_AND_OFFSET_arg, ARRAY, int, struct kbase_ioctl_mem_find_gpu_start_and_offset, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_MEM_FIND_GPU_START_AND_OFFSET_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_MEM_FIND_GPU_START_AND_OFFSET_arg, ARRAY, int, struct kbase_ioctl_mem_find_gpu_start_and_offset, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_MEM_FLAGS_CHANGE_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_MEM_FLAGS_CHANGE_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_MEM_FLAGS_CHANGE_arg, ARRAY, int, struct kbase_ioctl_mem_flags_change, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_MEM_FLAGS_CHANGE_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_MEM_FLAGS_CHANGE_arg, ARRAY, int, struct kbase_ioctl_mem_flags_change, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_MEM_FREE_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_MEM_FREE_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_MEM_FREE_arg, ARRAY, int, struct kbase_ioctl_mem_free, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_MEM_FREE_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_MEM_FREE_arg, ARRAY, int, struct kbase_ioctl_mem_free, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_MEM_IMPORT_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_MEM_IMPORT_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_MEM_IMPORT_arg, ARRAY, int, struct kbase_ioctl_mem_import, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_MEM_IMPORT_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_MEM_IMPORT_arg, ARRAY, int, struct kbase_ioctl_mem_import, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_MEM_JIT_INIT_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_MEM_JIT_INIT_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_MEM_JIT_INIT_arg, ARRAY, int, struct kbase_ioctl_mem_jit_init, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_MEM_JIT_INIT_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_MEM_JIT_INIT_arg, ARRAY, int, struct kbase_ioctl_mem_jit_init, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_MEM_JIT_INIT_10_2_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_MEM_JIT_INIT_10_2_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_MEM_JIT_INIT_10_2_arg, ARRAY, int, struct kbase_ioctl_mem_jit_init_10_2, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_MEM_JIT_INIT_10_2_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_MEM_JIT_INIT_10_2_arg, ARRAY, int, struct kbase_ioctl_mem_jit_init_10_2, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_MEM_JIT_INIT_11_5_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_MEM_JIT_INIT_11_5_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_MEM_JIT_INIT_11_5_arg, ARRAY, int, struct kbase_ioctl_mem_jit_init_11_5, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_MEM_JIT_INIT_11_5_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_MEM_JIT_INIT_11_5_arg, ARRAY, int, struct kbase_ioctl_mem_jit_init_11_5, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_MEM_PROFILE_ADD_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_MEM_PROFILE_ADD_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_MEM_PROFILE_ADD_arg, ARRAY, int, struct kbase_ioctl_mem_profile_add, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_MEM_PROFILE_ADD_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_MEM_PROFILE_ADD_arg, ARRAY, int, struct kbase_ioctl_mem_profile_add, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_MEM_QUERY_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_MEM_QUERY_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_MEM_QUERY_arg, ARRAY, int, struct kbase_ioctl_mem_query, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_MEM_QUERY_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_MEM_QUERY_arg, ARRAY, int, struct kbase_ioctl_mem_query, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_MEM_SYNC_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_MEM_SYNC_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_MEM_SYNC_arg, ARRAY, int, struct kbase_ioctl_mem_sync, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_MEM_SYNC_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_MEM_SYNC_arg, ARRAY, int, struct kbase_ioctl_mem_sync, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_POST_TERM_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_POST_TERM_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_POST_TERM_ent, ARRAY, int, sys_enter_ent_t, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_READ_USER_PAGE_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_READ_USER_PAGE_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_READ_USER_PAGE_arg, ARRAY, int, struct kbase_ioctl_read_user_page, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_READ_USER_PAGE_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_READ_USER_PAGE_arg, ARRAY, int, struct kbase_ioctl_read_user_page, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_SET_FLAGS_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_SET_FLAGS_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_SET_FLAGS_arg, ARRAY, int, struct kbase_ioctl_set_flags, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_SET_FLAGS_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_SET_FLAGS_arg, ARRAY, int, struct kbase_ioctl_set_flags, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_SET_LIMITED_CORE_COUNT_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_SET_LIMITED_CORE_COUNT_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_SET_LIMITED_CORE_COUNT_arg, ARRAY, int, struct kbase_ioctl_set_limited_core_count, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_SET_LIMITED_CORE_COUNT_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_SET_LIMITED_CORE_COUNT_arg, ARRAY, int, struct kbase_ioctl_set_limited_core_count, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_SOFT_EVENT_UPDATE_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_SOFT_EVENT_UPDATE_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_SOFT_EVENT_UPDATE_arg, ARRAY, int, struct kbase_ioctl_soft_event_update, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_SOFT_EVENT_UPDATE_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_SOFT_EVENT_UPDATE_arg, ARRAY, int, struct kbase_ioctl_soft_event_update, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_STICKY_RESOURCE_MAP_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_STICKY_RESOURCE_MAP_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_STICKY_RESOURCE_MAP_arg, ARRAY, int, struct kbase_ioctl_sticky_resource_map, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_STICKY_RESOURCE_MAP_arg_address, ARRAY, int, struct ioctl_KBASE_IOCTL_STICKY_RESOURCE_MAP_arg_address_buf, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_STICKY_RESOURCE_MAP_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_STICKY_RESOURCE_MAP_arg, ARRAY, int, struct kbase_ioctl_sticky_resource_map, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_STICKY_RESOURCE_MAP_arg_address, ARRAY, int, struct ioctl_KBASE_IOCTL_STICKY_RESOURCE_MAP_arg_address_buf, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_STICKY_RESOURCE_UNMAP_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_STICKY_RESOURCE_UNMAP_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_STICKY_RESOURCE_UNMAP_arg, ARRAY, int, struct kbase_ioctl_sticky_resource_unmap, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_STICKY_RESOURCE_UNMAP_arg_address, ARRAY, int, struct ioctl_KBASE_IOCTL_STICKY_RESOURCE_UNMAP_arg_address_buf, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_STICKY_RESOURCE_UNMAP_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_STICKY_RESOURCE_UNMAP_arg, ARRAY, int, struct kbase_ioctl_sticky_resource_unmap, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_STICKY_RESOURCE_UNMAP_arg_address, ARRAY, int, struct ioctl_KBASE_IOCTL_STICKY_RESOURCE_UNMAP_arg_address_buf, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_STREAM_CREATE_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_STREAM_CREATE_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_STREAM_CREATE_arg, ARRAY, int, struct kbase_ioctl_stream_create, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_STREAM_CREATE_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_STREAM_CREATE_arg, ARRAY, int, struct kbase_ioctl_stream_create, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_TLSTREAM_ACQUIRE_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_TLSTREAM_ACQUIRE_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_TLSTREAM_ACQUIRE_arg, ARRAY, int, struct kbase_ioctl_tlstream_acquire, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_TLSTREAM_ACQUIRE_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_TLSTREAM_ACQUIRE_arg, ARRAY, int, struct kbase_ioctl_tlstream_acquire, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_TLSTREAM_FLUSH_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_TLSTREAM_FLUSH_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_TLSTREAM_FLUSH_ent, ARRAY, int, sys_enter_ent_t, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_VERSION_CHECK_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_VERSION_CHECK_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_VERSION_CHECK_arg, ARRAY, int, struct kbase_ioctl_version_check, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_VERSION_CHECK_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_VERSION_CHECK_arg, ARRAY, int, struct kbase_ioctl_version_check, 4096)
 DEFINE_BPF_MAP_F(ioctl_KBASE_IOCTL_VERSION_CHECK_RESERVED_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_VERSION_CHECK_RESERVED_ent, ARRAY, int, sys_enter_ent_t, 4096)
-DEFINE_BPF_MAP(ioctl_KBASE_IOCTL_VERSION_CHECK_RESERVED_arg, ARRAY, int, struct kbase_ioctl_version_check, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_VERSION_CHECK_RESERVED_ent, ARRAY, int, sys_enter_ent_t, 4096)
+DEFINE_BPF_MAP_N(ioctl_KBASE_IOCTL_VERSION_CHECK_RESERVED_arg, ARRAY, int, struct kbase_ioctl_version_check, 4096)
 DEFINE_BPF_MAP_F(mmap_bifrost_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(mmap_bifrost_ent, ARRAY, int, sys_enter_ent_t, 1024)
+DEFINE_BPF_MAP_N(mmap_bifrost_ent, ARRAY, int, sys_enter_ent_t, 1024)
 DEFINE_BPF_MAP_F(other_syscalls_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(other_syscalls_ent, ARRAY, int, sys_enter_ent_t, 262144)
-DEFINE_BPF_MAP(other_syscalls_nr, ARRAY, int, int, 262144)
+DEFINE_BPF_MAP_N(other_syscalls_ent, ARRAY, int, sys_enter_ent_t, 262144)
+DEFINE_BPF_MAP_N(other_syscalls_nr, ARRAY, int, int, 262144)
 DEFINE_BPF_MAP_F(syscall_return_ctr, ARRAY, int, trace_entry_ctr_t, 1, BPF_F_LOCK)
-DEFINE_BPF_MAP(syscall_return_ent, ARRAY, int, sys_exit_ent_t, 262144)
+DEFINE_BPF_MAP_N(syscall_return_ent, ARRAY, int, sys_exit_ent_t, 262144)
 
+/*
 #define bpf_printk(fmt, ...)                                   \
 ({                                                             \
     char ____fmt[] = fmt;                                      \
     bpf_trace_printk(____fmt, sizeof(____fmt), ##__VA_ARGS__); \
-})							       
+})
+*/
 
 #define get_and_inc_ctr(v, ctr_name, size_bits)                        \
     int ctr_i = 0;                                                     \
@@ -3257,8 +3314,9 @@ void __always_inline trace_syscalls(sys_enter_args *ctx, uint64_t pid_tgid) {
     return;
 }
 
-DEFINE_BPF_PROG("tracepoint/raw_syscalls/sys_enter", 0, 0, sys_enter_prog)
-(sys_enter_args *ctx) {
+//DEFINE_BPF_PROG("tracepoint/raw_syscalls/sys_enter", 0, 0, sys_enter_prog)
+SEC("tracepoint/raw_syscalls/sys_enter")
+int sys_enter_prog (sys_enter_args *ctx) {
     uint64_t pid_tgid = bpf_get_current_pid_tgid();
     uint32_t tgid = pid_tgid;
     int data = 1;
@@ -3274,8 +3332,9 @@ DEFINE_BPF_PROG("tracepoint/raw_syscalls/sys_enter", 0, 0, sys_enter_prog)
     return 0;
 }
 
-DEFINE_BPF_PROG("tracepoint/raw_syscalls/sys_exit", 0, 0, sys_exit_prog)
-(sys_exit_args *ctx) {
+//DEFINE_BPF_PROG("tracepoint/raw_syscalls/sys_exit", 0, 0, sys_exit_prog)
+SEC("tracepoint/raw_syscalls/sys_exit")
+int sys_exit_prog (sys_exit_args *ctx) {
     int nr = ctx->id;
     uint32_t data = 1;
     uint64_t pid_tgid = bpf_get_current_pid_tgid();
@@ -3306,4 +3365,5 @@ DEFINE_BPF_PROG("tracepoint/raw_syscalls/sys_exit", 0, 0, sys_exit_prog)
 	return 0;
 }
 
-LICENSE("GPL");
+//LICENSE("GPL");
+char _license[] SEC("license") = "GPL";

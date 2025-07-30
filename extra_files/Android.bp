@@ -45,8 +45,7 @@ libbpf_prog {
     	],
 	cflags: [
 		"-Isystem/bpf/include/bpf",
-		"-Iexternal/libbpf/include/uapi/linux/bpf.h",
-		"-target", "bpf",
+		"-Iexternal/libbpf/include/uapi/linux",
 	]
 
 }
