@@ -1,0 +1,173 @@
+diff --git a/android/abi_gki_aarch64.stg b/android/abi_gki_aarch64.stg
+index 99755075c7ec..0b8afe835e10 100644
+--- a/android/abi_gki_aarch64.stg
++++ b/android/abi_gki_aarch64.stg
+@@ -279656,9 +279656,17 @@ enumeration {
+       name: "BPF_FUNC_user_ringbuf_drain"
+       value: 209
+     }
++    enumerator {
++      name: "BPF_FUNC_probe_read_sleepable"
++      value: 212
++    }
++    enumerator {
++      name: "BPF_FUNC_check_fd"
++      value: 213
++    }
+     enumerator {
+       name: "__BPF_FUNC_MAX_ID"
+-      value: 210
++      value: 214
+     }
+   }
+ }
+diff --git a/include/linux/bpf.h b/include/linux/bpf.h
+index 69d231e9a199..3a48f0054b85 100644
+--- a/include/linux/bpf.h
++++ b/include/linux/bpf.h
+@@ -2599,6 +2599,12 @@ extern const struct bpf_func_proto bpf_set_retval_proto;
+ extern const struct bpf_func_proto bpf_get_retval_proto;
+ extern const struct bpf_func_proto bpf_user_ringbuf_drain_proto;
+ 
++//sifter
++extern const struct bpf_func_proto bpf_probe_read_sleepable_proto;
++extern const struct bpf_func_proto bpf_check_fd_proto;
++//sifter -end
++
++
+ const struct bpf_func_proto *tracing_prog_func_proto(
+   enum bpf_func_id func_id, const struct bpf_prog *prog);
+ 
+diff --git a/include/uapi/linux/bpf.h b/include/uapi/linux/bpf.h
+index 3dfe140df9e6..7f65b19aec33 100644
+--- a/include/uapi/linux/bpf.h
++++ b/include/uapi/linux/bpf.h
+@@ -5693,8 +5693,11 @@ union bpf_attr {
+ 	FN(tcp_raw_check_syncookie_ipv6),	\
+ 	FN(ktime_get_tai_ns),		\
+ 	FN(user_ringbuf_drain),		\
++ 	FN(probe_read_sleepable),	\
++ 	FN(check_fd),			\
+ 	/* */
+ 
++/*sifter added probe_read_sleepable and check_fd*/
+ /* integer value in 'imm' field of BPF_CALL instruction selects which helper
+  * function eBPF program intends to call
+  */
+diff --git a/include/uapi/linux/bpf_common.h b/include/uapi/linux/bpf_common.h
+index ee97668bdadb..5b411a6fd769 100644
+--- a/include/uapi/linux/bpf_common.h
++++ b/include/uapi/linux/bpf_common.h
+@@ -1,4 +1,5 @@
+ /* SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note */
++/*sifter changed MAXINSNS*/
+ #ifndef _UAPI__LINUX_BPF_COMMON_H__
+ #define _UAPI__LINUX_BPF_COMMON_H__
+ 
+@@ -51,7 +52,7 @@
+ #define		BPF_X		0x08
+ 
+ #ifndef BPF_MAXINSNS
+-#define BPF_MAXINSNS 4096
++#define BPF_MAXINSNS 65536
+ #endif
+ 
+ #endif /* _UAPI__LINUX_BPF_COMMON_H__ */
+diff --git a/kernel/bpf/verifier.c b/kernel/bpf/verifier.c
+index a4f3ea6c5f37..c55ec4468720 100644
+--- a/kernel/bpf/verifier.c
++++ b/kernel/bpf/verifier.c
+@@ -12944,12 +12944,10 @@ static int check_map_prog_compatibility(struct bpf_verifier_env *env,
+ 			verbose(env, "socket filter progs cannot use bpf_spin_lock yet\n");
+ 			return -EINVAL;
+ 		}
+-
+ 		if (is_tracing_prog_type(prog_type)) {
+ 			verbose(env, "tracing progs cannot use bpf_spin_lock yet\n");
+ 			return -EINVAL;
+ 		}
+-
+ 		if (prog->aux->sleepable) {
+ 			verbose(env, "sleepable progs cannot use bpf_spin_lock yet\n");
+ 			return -EINVAL;
+diff --git a/kernel/trace/bpf_trace.c b/kernel/trace/bpf_trace.c
+index cc98e523af42..eb81ed9b30f6 100644
+--- a/kernel/trace/bpf_trace.c
++++ b/kernel/trace/bpf_trace.c
+@@ -33,6 +33,10 @@
+ #include "trace_probe.h"
+ #include "trace.h"
+ 
++//sifter
++#include <linux/file.h>
++#include <linux/fdtable.h>
++//sifter -end
+ #define CREATE_TRACE_POINTS
+ #include "bpf_trace.h"
+ 
+@@ -142,6 +146,56 @@ unsigned int trace_call_bpf(struct trace_event_call *call, void *ctx)
+ 	return ret;
+ }
+ 
++//sifter
++BPF_CALL_2(bpf_check_fd, char *, path, u32, fd)
++{
++    int ret = 0;
++    struct file *file;
++    rcu_read_lock();
++    file = fcheck(fd);
++
++    if (file) {
++        const char *fd_path = file->f_path.dentry->d_name.name;
++        ret = (strcmp(fd_path, path) == 0)? 1 : 0;
++        //printk("check_fd %s ret = %d\n", fd_path, ret);
++    } else {
++        ret = 0;
++        //printk("check_fd file not found\n");
++    }
++
++    rcu_read_unlock();
++    return ret;
++}
++
++const struct bpf_func_proto bpf_check_fd_proto = {
++	.func		= bpf_check_fd,
++	.gpl_only	= true,
++	.ret_type	= RET_INTEGER,
++	.arg1_type	= ARG_PTR_TO_STACK,
++	.arg2_type	= ARG_ANYTHING,
++};
++
++BPF_CALL_3(bpf_probe_read_sleepable, void *, dst, u32, size, const void *, unsafe_ptr)
++{
++	int ret;
++
++	ret = copy_from_user(dst, unsafe_ptr, size);
++	if (unlikely(ret < 0))
++		memset(dst, 0, size);
++
++	return ret;
++}
++
++const struct bpf_func_proto bpf_probe_read_sleepable_proto = {
++	.func		= bpf_probe_read_sleepable,
++	.gpl_only	= true,
++	.ret_type	= RET_INTEGER,
++	.arg1_type	= ARG_PTR_TO_RAW_STACK,
++	.arg2_type	= ARG_CONST_STACK_SIZE,
++	.arg3_type	= ARG_ANYTHING,
++};
++//sifter -end
++
+ #ifdef CONFIG_BPF_KPROBE_OVERRIDE
+ BPF_CALL_2(bpf_override_return, struct pt_regs *, regs, unsigned long, rc)
+ {
+@@ -1463,6 +1517,8 @@ bpf_tracing_func_proto(enum bpf_func_id func_id, const struct bpf_prog *prog)
+ 	case BPF_FUNC_probe_read_kernel_str:
+ 		return security_locked_down(LOCKDOWN_BPF_READ_KERNEL) < 0 ?
+ 		       NULL : &bpf_probe_read_kernel_str_proto;
++	case BPF_FUNC_probe_read_sleepable:
++		return &bpf_probe_read_sleepable_proto;
+ #ifdef CONFIG_ARCH_HAS_NON_OVERLAPPING_ADDRESS_SPACE
+ 	case BPF_FUNC_probe_read:
+ 		return security_locked_down(LOCKDOWN_BPF_READ_KERNEL) < 0 ?
