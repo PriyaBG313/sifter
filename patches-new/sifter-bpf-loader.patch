@@ -11,49 +11,36 @@ index 11e1598..3fb2116 100644
          "libbase",
          "libutils",
 diff --git a/loader/include/libbpf_android.h b/loader/include/libbpf_android.h
-index 706c0e8..fea47e4 100644
+index 706c0e8..32221f5 100644
 --- a/loader/include/libbpf_android.h
 +++ b/loader/include/libbpf_android.h
-@@ -17,6 +17,15 @@
- 
+@@ -18,6 +18,14 @@
  #pragma once
  
+ // The C++ portion of the BpfLoader is exposed as a terminal function.
 +#ifdef __cplusplus
 +namespace android {
 +namespace bpf {
-+
 +int loadProg(const char* path, bool* isCritical);
 +}  
 +}  
 +#endif
 +
- // The C++ portion of the BpfLoader is exposed as a terminal function.
  #ifdef __cplusplus
  extern "C" __noreturn
+ #endif
 diff --git a/progs/Android.bp b/progs/Android.bp
-index a37161e..35737e2 100644
+index a37161e..5fde5a3 100644
 --- a/progs/Android.bp
 +++ b/progs/Android.bp
-@@ -27,10 +27,25 @@ cc_library_headers {
-     export_include_dirs: ["include"],
+@@ -34,3 +34,34 @@ libbpf_prog {
+         "android_bpf_defs",
+     ],
  }
- 
-+//libbpf_prog {
-+//    name: "bpfRingbufProg.bpf",
-+//    srcs: ["bpfRingbufProg.c"],
-+//    header_libs: [
-+//        "android_bpf_defs",
-+//    ],
-+//}
 +
- libbpf_prog {
--    name: "bpfRingbufProg.bpf",
--    srcs: ["bpfRingbufProg.c"],
--    header_libs: [
--        "android_bpf_defs",
--    ],
-+	name: "bifrostTracer.bpf",
-+	srcs: ["bifrostTracer.c"],
++libbpf_prog {
++	name: "bifrostTracerEntry.bpf",
++	srcs: ["bifrostTracerEntry.c"],
 +	header_libs: [
 +        	"bpf_prog_headers",
 +        	"libcutils_headers",
@@ -64,4 +51,20 @@ index a37161e..35737e2 100644
 +		"-Iexternal/libbpf/include/uapi/linux",
 +	]
 +
- }
++}
++
++libbpf_prog {
++        name: "bifrostTracerExit.bpf",
++        srcs: ["bifrostTracerExit.c"],
++        header_libs: [
++                "bpf_prog_headers",
++                "libcutils_headers",
++                "android_bpf_defs",
++        ],
++        cflags: [
++                "-Isystem/bpf/include/bpf",
++                "-Iexternal/libbpf/include/uapi/linux",
++        ]
++
++}
++

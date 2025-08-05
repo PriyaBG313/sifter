@@ -39,15 +39,16 @@ index 69d231e9a199..3a48f0054b85 100644
    enum bpf_func_id func_id, const struct bpf_prog *prog);
  
 diff --git a/include/linux/bpf_verifier.h b/include/linux/bpf_verifier.h
-index 5db390d63a51..e122d61c95f9 100644
+index 5db390d63a51..d318b7a14264 100644
 --- a/include/linux/bpf_verifier.h
 +++ b/include/linux/bpf_verifier.h
-@@ -432,8 +432,8 @@ struct bpf_insn_aux_data {
+@@ -432,8 +432,9 @@ struct bpf_insn_aux_data {
  	bool prune_point;
  };
  
 -#define MAX_USED_MAPS 64 /* max number of maps accessed by one eBPF program */
 -#define MAX_USED_BTFS 64 /* max number of BTFs accessed by one BPF program */
++/*sifter increased MAX_USED_MAPS and MAX_USED_BTFS from 64 to 1024*/
 +#define MAX_USED_MAPS 1024 /* max number of maps accessed by one eBPF program */
 +#define MAX_USED_BTFS 1024 /* max number of BTFs accessed by one BPF program */
  
@@ -67,13 +68,15 @@ index a686c9041ddc..da73a7c29ac7 100644
  		/**
  		 * @strict_start_type: first attribute to validate strictly
 diff --git a/include/uapi/linux/bpf.h b/include/uapi/linux/bpf.h
-index 3dfe140df9e6..7f65b19aec33 100644
+index 3dfe140df9e6..5d354f9a99f1 100644
 --- a/include/uapi/linux/bpf.h
 +++ b/include/uapi/linux/bpf.h
-@@ -5693,8 +5693,11 @@ union bpf_attr {
+@@ -5693,8 +5693,13 @@ union bpf_attr {
  	FN(tcp_raw_check_syncookie_ipv6),	\
  	FN(ktime_get_tai_ns),		\
  	FN(user_ringbuf_drain),		\
++ 	FN(cgrp_storage_get),		\
++ 	FN(cgrp_storage_delete),	\
 + 	FN(probe_read_sleepable),	\
 + 	FN(check_fd),			\
  	/* */
@@ -102,7 +105,7 @@ index ee97668bdadb..5b411a6fd769 100644
  
  #endif /* _UAPI__LINUX_BPF_COMMON_H__ */
 diff --git a/kernel/bpf/verifier.c b/kernel/bpf/verifier.c
-index a4f3ea6c5f37..930ae88f0c30 100644
+index a4f3ea6c5f37..172dfefc099f 100644
 --- a/kernel/bpf/verifier.c
 +++ b/kernel/bpf/verifier.c
 @@ -12944,12 +12944,12 @@ static int check_map_prog_compatibility(struct bpf_verifier_env *env,
@@ -110,7 +113,7 @@ index a4f3ea6c5f37..930ae88f0c30 100644
  			return -EINVAL;
  		}
 -
-+		/*
++		/*sifter
  		if (is_tracing_prog_type(prog_type)) {
  			verbose(env, "tracing progs cannot use bpf_spin_lock yet\n");
  			return -EINVAL;
@@ -121,7 +124,7 @@ index a4f3ea6c5f37..930ae88f0c30 100644
  			verbose(env, "sleepable progs cannot use bpf_spin_lock yet\n");
  			return -EINVAL;
 diff --git a/kernel/trace/bpf_trace.c b/kernel/trace/bpf_trace.c
-index cc98e523af42..db9c35f0dd78 100644
+index cc98e523af42..f344ad2f2832 100644
 --- a/kernel/trace/bpf_trace.c
 +++ b/kernel/trace/bpf_trace.c
 @@ -33,6 +33,12 @@
@@ -198,12 +201,16 @@ index cc98e523af42..db9c35f0dd78 100644
  #ifdef CONFIG_BPF_KPROBE_OVERRIDE
  BPF_CALL_2(bpf_override_return, struct pt_regs *, regs, unsigned long, rc)
  {
-@@ -1463,6 +1523,8 @@ bpf_tracing_func_proto(enum bpf_func_id func_id, const struct bpf_prog *prog)
+@@ -1463,6 +1523,12 @@ bpf_tracing_func_proto(enum bpf_func_id func_id, const struct bpf_prog *prog)
  	case BPF_FUNC_probe_read_kernel_str:
  		return security_locked_down(LOCKDOWN_BPF_READ_KERNEL) < 0 ?
  		       NULL : &bpf_probe_read_kernel_str_proto;
++	//sifter
 +	case BPF_FUNC_probe_read_sleepable:
 +		return &bpf_probe_read_sleepable_proto;
++	case BPF_FUNC_check_fd:
++		return &bpf_check_fd_proto;
++	//sifter -end
  #ifdef CONFIG_ARCH_HAS_NON_OVERLAPPING_ADDRESS_SPACE
  	case BPF_FUNC_probe_read:
  		return security_locked_down(LOCKDOWN_BPF_READ_KERNEL) < 0 ?
