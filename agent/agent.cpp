@@ -450,7 +450,7 @@ private:
         uint32_t last_ctr = 0;
         int zero_idx = 0;
 
-        std::string trace = "raw_trace_" + sc->syscall_name + ".dat";
+        std::string trace = "/data/local/tmp/raw_trace_" + sc->syscall_name + ".dat";
         std::ofstream ofs(trace, std::ofstream::app);
         if (!ofs) {
             std::cerr << "Failed to open trace file " << trace << "\n";
@@ -969,7 +969,7 @@ error:
         g_update_ts = 0;
         std::stringstream ss;
         std::time_t t = std::time(nullptr);
-        ss << "tracing_agent_" << t << ".log";
+        ss << "/data/local/tmp/tracing_agent_" << t << ".log";
         g_log_stream.open(ss.str());
         if (!g_log_stream) {
             std::cerr << "Failed to open update log\n";
