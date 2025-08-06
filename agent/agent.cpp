@@ -987,8 +987,12 @@ error:
 
         std::string path = "/sys/fs/bpf/map_" + m_name + "_target_prog_comm_map";
         int target_prog_comm_map_fd = bpf_obj_get(path.c_str());
-        if (target_prog_comm_map_fd != -1)
+        if (target_prog_comm_map_fd != -1){
+		std::cout<<"found the comm map "<<path<<std::endl;
             m_target_prog_comm_map_fd = unique_fd(target_prog_comm_map_fd);
+	} else {
+		std::cout<<"failed to find comm map "<<path<<std::endl;
+	}	
 
 	std::cout<<"Obtained bpf map fd"<<std::endl;
 
@@ -996,8 +1000,13 @@ error:
         for (auto s : m_target_prog_comm_list) {
             char target_prog_comm[16] = {};
             strncpy(target_prog_comm, s.c_str(), 16);
-            android::bpf::writeToMapEntry(m_target_prog_comm_map_fd,
+            int res = android::bpf::writeToMapEntry(m_target_prog_comm_map_fd,
                     target_prog_comm, &dummy_val, BPF_ANY);
+	    if (res) {
+		    std::cerr<<"Error: failed to write to map "<< strerror(errno) << " (errno: " << errno << ")" << std::endl;
+	    } else {
+		    std::cout<<"Successfully wrote to comm map";
+	    }
         }
 	std::cout<<"Created tracer, returning"<<std::endl;
         m_init = 1;
@@ -1163,6 +1172,112 @@ void proc_spawner_monitor_th(int spwaner_pid) {
     return;
 }
 
+//priya
+int load_and_pin_bpf_object() {
+    struct bpf_object *obj;
+    struct bpf_program *prog1, *prog2;
+    struct bpf_map *map; 
+    int err;
+
+    obj = bpf_object__open_file("/etc/bpf/bifrostTracer.bpf", NULL);
+    if (!obj) {
+	    std::cerr<<"Error: Failed to open BPF object file"<<std::endl;
+	    return 1;
+    }
+
+    auto close_obj = [&]() {
+        if (obj) bpf_object__close(obj);
+    };
+
+    if (bpf_object__load(obj)) {
+        std::cerr << "ERROR: Failed to load BPF object" << std::endl;
+        close_obj();
+        return 1;
+    }
+
+    std::cout<<"BPF object loaded successfully!"<<std::endl;
+
+    prog1 = bpf_object__find_program_by_name(obj, "sys_enter_prog");
+    prog2 = bpf_object__find_program_by_name(obj, "sys_exit_prog");
+
+    if (prog1) {
+        bpf_program__pin(prog1, "/sys/fs/bpf/prog_bifrostTracer_tracepoint_raw_syscalls_sys_enter");
+    } else {
+	    std::cerr<<"Could not find prog1"<<std::endl;
+    }
+    if (prog2) {
+        bpf_program__pin(prog2, "/sys/fs/bpf/prog_bifrostTracer_tracepoint_raw_syscalls_sys_exit");
+    } else {
+	    std::cerr<<"Could not find prog2"<<std::endl;
+    }
+
+    bpf_object__for_each_map(map, obj) {
+        const char *map_name = bpf_map__name(map);
+        char pin_path[256];
+
+        snprintf(pin_path, sizeof(pin_path), "/sys/fs/bpf/map_bifrostTracer_%s", map_name);
+
+        err = bpf_map__pin(map, pin_path);
+        if (err) {
+            fprintf(stderr, "ERROR: failed to pin map '%s' at '%s': %s\n",
+                    map_name, pin_path, strerror(-err));
+        }
+    }
+    close_obj();
+    return 0;
+}
+
+int cleanup_bpf(const std::string& base_name) {
+    const std::string bpf_fs_path = "/sys/fs/bpf/";
+    int error_count = 0;
+
+    std::vector<std::string> programs_to_unpin = {
+        "prog_" + base_name + "_tracepoint_raw_syscalls_sys_enter",
+        "prog_" + base_name + "_tracepoint_raw_syscalls_sys_exit"
+    };
+
+    for (const auto& prog_name : programs_to_unpin) {
+        std::string full_path = bpf_fs_path + prog_name;
+        if (remove(full_path.c_str()) == 0) {
+            std::cout << "Successfully unpinned program: " << prog_name << std::endl;
+        } else if (errno != ENOENT) {
+	    std::cerr << "ERROR: Failed to unpin program '" << full_path << "': " << strerror(errno) << std::endl;
+            error_count++;
+        }
+    }
+
+
+    std::string map_prefix = "map_" + base_name + "_";
+    DIR *dir = opendir(bpf_fs_path.c_str());
+    if (!dir) {
+        std::cerr << "ERROR: Could not open BPF filesystem directory '" << bpf_fs_path << "': " << strerror(errno) << std::endl;
+        return -1;
+    }
+
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != nullptr) {
+	if (strncmp(entry->d_name, map_prefix.c_str(), map_prefix.length()) == 0) {
+            std::string full_path = bpf_fs_path + entry->d_name;
+	    if (remove(full_path.c_str()) == 0) {
+                std::cout << "Successfully unpinned map: " << entry->d_name << std::endl;
+            } else {
+                 // Any failure to remove an existing map is an error.
+                std::cerr << "ERROR: Failed to unpin map '" << full_path << "': " << strerror(errno) << std::endl;
+                error_count++;
+            }
+	}
+    }
+    closedir(dir);
+    std::cout<<"Failed to clean up "<<error_count<<" objects."<<std::endl;
+    return 0;
+}
+
+
+
+
+//priya -end
+    
+
 int main(int argc, char *argv[]) {
     bool recover = true;
     int log_interval = 1;
@@ -1230,44 +1345,7 @@ int main(int argc, char *argv[]) {
         i++;
     }
 
-    //priya
-    struct bpf_object *obj;
-    struct bpf_program *prog1, *prog2;
-
-    obj = bpf_object__open_file("/etc/bpf/bifrostTracer.bpf", NULL);
-    if (!obj) {
-	    std::cerr<<"Error: Failed to open BPF pbject file"<<std::endl;
-	    return 1;
-    }
-
-    auto close_obj = [&]() {
-        if (obj) bpf_object__close(obj);
-    };
-
-    if (bpf_object__load(obj)) {
-        std::cerr << "ERROR: Failed to load BPF object" << std::endl;
-        close_obj();
-        return 1;
-    }
-
-    std::cout<<"BPF object loaded successfully!"<<std::endl;
-
-    prog1 = bpf_object__find_program_by_name(obj, "sys_enter_prog");
-    prog2 = bpf_object__find_program_by_name(obj, "sys_exit_prog");
-
-    if (prog1) {
-        bpf_program__pin(prog1, "/sys/fs/bpf/prog_bifrostTracer_tracepoint_raw_syscalls_sys_enter");
-    } else {
-	    std::cerr<<"Could not find prog1"<<std::endl;
-    }
-    if (prog2) {
-        bpf_program__pin(prog2, "/sys/fs/bpf/prog_bifrostTracer_tracepoint_raw_syscalls_sys_exit");
-    } else {
-	    std::cerr<<"Could not find prog2"<<std::endl;
-    }
-
-    //priya -end
-    
+    load_and_pin_bpf_object();
     sifter_tracer tracer(config_file, target_prog_list, verbose);
 
     if (!tracer) {
@@ -1311,6 +1389,6 @@ int main(int argc, char *argv[]) {
     tracer.stop_update_rbs();
     tracer.stop_update_args();
     std::cout<<"Stopped"<<std::endl;
-    close_obj();
+    cleanup_bpf("bifrostTracer");
     return 0;
 }
