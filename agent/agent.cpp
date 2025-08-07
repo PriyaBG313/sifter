@@ -675,27 +675,37 @@ public:
 
     int save_traced_pid_comm() {
         std::string path = "/sys/fs/bpf/map_" + m_name + "_traced_pid_tgid_comm_map";
-        std::ofstream ofs("traced_pid_tgid_comm_map.log");
+        std::ofstream ofs("/data/local/tmp/traced_pid_tgid_comm_map.log");
         int fd = bpf_obj_get(path.c_str());
-        if (fd == -1 || !ofs)
+        if (fd == -1 || !ofs) {
+		std::cerr<<"PID_COMM: Failed to get bpf object"<<std::endl;
             return -1;
+	}
 
         unique_fd ufd = unique_fd(fd);
         uint64_t pid;
         char comm[16];
 
-        if (android::bpf::getFirstMapKey(ufd, &pid))
+        if (android::bpf::getFirstMapKey(ufd, &pid)) {
+		fprintf(stderr, "getFirstMapKey failed: %s\n", strerror(errno));
+		std::cerr<<"PID_COMM: Failed to get first map key"<<std::endl;
             goto error;
+	}
 
-        if (android::bpf::findMapEntry(ufd, &pid, (void *)comm))
+        if (android::bpf::findMapEntry(ufd, &pid, (void *)comm)) {
+		std::cerr<<"PID_COMM: Failed to find map entry"<<std::endl;
             goto error;
+	}
 
         ofs << pid << " " << comm << std::endl;
         while (android::bpf::getNextMapKey(ufd, &pid, &pid) == 0) {
-            if (android::bpf::findMapEntry(ufd, &pid, (void *)comm))
+            if (android::bpf::findMapEntry(ufd, &pid, (void *)comm)) {
+		    std::cerr<<"PID_COMM: Failed to get next map entry"<<std::endl;
                 goto error;
+	    }
             ofs << pid << " " << comm << std::endl;
         }
+	std::cout<<"PID_COMM: Successfully saved map"<<std::endl;
         ofs.close();
         return 0;
 
@@ -991,10 +1001,8 @@ error:
 		std::cout<<"found the comm map "<<path<<std::endl;
             m_target_prog_comm_map_fd = unique_fd(target_prog_comm_map_fd);
 	} else {
-		std::cout<<"failed to find comm map "<<path<<std::endl;
+		std::cerr<<"failed to find comm map "<<path<<std::endl;
 	}	
-
-	std::cout<<"Obtained bpf map fd"<<std::endl;
 
         uint32_t dummy_val = 1;
         for (auto s : m_target_prog_comm_list) {
@@ -1005,7 +1013,7 @@ error:
 	    if (res) {
 		    std::cerr<<"Error: failed to write to map "<< strerror(errno) << " (errno: " << errno << ")" << std::endl;
 	    } else {
-		    std::cout<<"Successfully wrote to comm map";
+		    std::cout<<"Successfully wrote to comm map"<<std::endl;
 	    }
         }
 	std::cout<<"Created tracer, returning"<<std::endl;
@@ -1238,9 +1246,7 @@ int cleanup_bpf(const std::string& base_name) {
 
     for (const auto& prog_name : programs_to_unpin) {
         std::string full_path = bpf_fs_path + prog_name;
-        if (remove(full_path.c_str()) == 0) {
-            std::cout << "Successfully unpinned program: " << prog_name << std::endl;
-        } else if (errno != ENOENT) {
+        if (remove(full_path.c_str()) != 0) {
 	    std::cerr << "ERROR: Failed to unpin program '" << full_path << "': " << strerror(errno) << std::endl;
             error_count++;
         }
@@ -1258,10 +1264,7 @@ int cleanup_bpf(const std::string& base_name) {
     while ((entry = readdir(dir)) != nullptr) {
 	if (strncmp(entry->d_name, map_prefix.c_str(), map_prefix.length()) == 0) {
             std::string full_path = bpf_fs_path + entry->d_name;
-	    if (remove(full_path.c_str()) == 0) {
-                std::cout << "Successfully unpinned map: " << entry->d_name << std::endl;
-            } else {
-                 // Any failure to remove an existing map is an error.
+	    if (remove(full_path.c_str()) != 0) {
                 std::cerr << "ERROR: Failed to unpin map '" << full_path << "': " << strerror(errno) << std::endl;
                 error_count++;
             }

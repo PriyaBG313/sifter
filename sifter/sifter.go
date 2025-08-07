@@ -1978,19 +1978,27 @@ func (sifter *Sifter) WriteAgentConfigFile() {
 	fmt.Fprintf(s, "%v %v\n", sifter.outName, 8*sifter.target.PtrSize)
 
 	for _, syscalls := range sifter.moduleSyscalls {
+		fmt.Print("Debug: module syscalls\n")
 		for _, syscall := range syscalls {
+			fmt.Printf("Debug: syscall %s\n", syscall.name)
 			if strings.Contains(syscall.name, "_compact_") {
 				continue
 			}
+			var currentLine bytes.Buffer
 			fmt.Fprintf(s, "s %v %v %v", syscall.TraceSizeBits(), len(syscall.argMaps)+len(syscall.vlrMaps)+1, syscall.name)
 			fmt.Fprintf(s, " 64 %v_ent", syscall.name)
+			fmt.Fprintf(&currentLine, "s %v %v %v ", syscall.TraceSizeBits(), len(syscall.argMaps)+len(syscall.vlrMaps)+1, syscall.name)
+                        fmt.Fprintf(&currentLine, " 64 %v_ent ", syscall.name)
 			for _, arg := range syscall.argMaps {
 				fmt.Fprintf(s, " %v %v", arg.size, arg.name)
+				fmt.Fprintf(&currentLine, "map %v %v ", arg.size, arg.name)
 			}
 			for _, vlr := range syscall.vlrMaps {
 				fmt.Fprintf(s, " 512 %v", vlr.name)
+				fmt.Fprintf(&currentLine, "vlr 512 %v ", vlr.name)
 			}
 			fmt.Fprintf(s, "\n")
+			fmt.Printf("Debug: %s\n",currentLine.String())
 		}
 	}
 
