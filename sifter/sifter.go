@@ -255,6 +255,7 @@ func NewSifter(f Flags) (*Sifter, error) {
 	}
 	s.syscalls = s.syscalls[:syscallMax]
 
+	fmt.Printf("Found %d module syscall groups\n", len(s.moduleSyscalls))
 	return s, nil
 }
 
@@ -1929,9 +1930,9 @@ func (sifter *Sifter) DoAnalyses(name string, flag AnalysisFlag, analysesConfigs
 	return updatedTeNum, updatedTeOLNum
 }
 
-func (sifter *Sifter) ReadSyscallTrace(dirPath string) int {
+func (sifter *Sifter) ReadSyscallTrace(dirPath string, tracePath string) int {
 
-	trace := newTrace(dirPath)
+	trace := newTrace(dirPath, tracePath)
 	if err := trace.ReadTracedPidComm(); err != nil {
 		fmt.Printf("failed to read traced pid comm map: %v\n", err)
 	}
@@ -2030,6 +2031,8 @@ func (sifter *Sifter) GetTrainTestFiles() ([]os.FileInfo, []os.FileInfo) {
 	testFileNum := sifter.traceNum - trainFileNum
 	usedFileMap := make(map[int32]bool)
 	traceFileNum := len(sifter.traceFiles)
+	fmt.Printf("Debug: traceFileNum: %d", traceFileNum);
+	fmt.Printf("Debug: traceNum: %d", sifter.traceNum);
 	for i := 0; i < traceFileNum; i++ {
 		r := rand.Int31n(int32(traceFileNum))
 		if len(testFiles) == testFileNum {
@@ -2052,7 +2055,7 @@ func (sifter *Sifter) GetTrainTestFiles() ([]os.FileInfo, []os.FileInfo) {
 			}
 		}
 	}
-
+	fmt.Printf("Debug: Train files: %d, Test files: %d\n", len(trainFiles), len(testFiles))
 	return trainFiles, testFiles
 }
 
@@ -2104,7 +2107,7 @@ func (sifter *Sifter) AnalyzeSinlgeTrace() {
 	for ri, round := range sifter.analysisRounds {
 		fmt.Print("================================================================================\n")
 		fmt.Printf("#Round %v: %v\n", ri, fileNames(round.files))
-		sifter.ReadSyscallTrace(sifter.traceDir)
+		sifter.ReadSyscallTrace(sifter.traceDir, sifter.traceDir)
 		sifter.DoAnalyses(sifter.traceDir, round.flag, round.ac)
 
 		for _, ac := range round.ac {
@@ -2138,6 +2141,7 @@ func (sifter *Sifter) TrainAndTest() {
 		var pa PatternAnalysis
 		la.SetGenValuesConstraintThreshold(8);
 
+		/*
 		fa.DisableTagging("ioctl_kgsl_IOCTL_KGSL_TIMESTAMP_EVENT_arg_type")
 		fa.DisableTagging("ioctl_kgsl_IOCTL_KGSL_GPUOBJ_IMPORT_arg_flags")
 		fa.DisableTagging("ioctl_kgsl_IOCTL_KGSL_GPUOBJ_IMPORT_arg_type")
@@ -2154,6 +2158,7 @@ func (sifter *Sifter) TrainAndTest() {
 		fa.DisableTagging("ioctl_kgsl_IOCTL_KGSL_GPU_COMMAND_arg_objlist_flags")
 		fa.DisableTagging("ioctl_kgsl_IOCTL_KGSL_GPU_COMMAND_arg_synclist_type")
 		fa.AddBitFields("ioctl_kgsl_IOCTL_KGSL_GPUOBJ_ALLOC_arg_flags", [][]int{{4,28},{4,24},{8,16},{8,8},{8,0}})
+		*/
 		pa.SetGroupingThreshold(TimeGrouping, 250000000)
 		pa.SetGroupingThreshold(SyscallGrouping, 10)
 		pa.SetGroupingThreshold(SleepableSyscallGrouping, 1000000)
@@ -2191,9 +2196,9 @@ func (sifter *Sifter) TrainAndTest() {
 			fmt.Println(time.Now().Format(time.RFC3339))
 			fmt.Printf("#Round %v: %v\n", ri, fileNames(round.files))
 			for fi, file := range round.files {
-				fmt.Printf("#Trace %v-%v-%v: %v\n", i, ri, fi, file.Name())
+				fmt.Printf("#New Trace %v-%v-%v: %v\n", i, ri, fi, file.Name())
 				filePath := sifter.traceDir + "/" + file.Name()
-				traceSize[ri] += sifter.ReadSyscallTrace(filePath)
+				traceSize[ri] += sifter.ReadSyscallTrace(filePath, sifter.traceDir)
 				fp, tp := sifter.DoAnalyses(filePath, round.flag, round.ac)
 				fps[ri] += fp
 				tps[ri] += tp

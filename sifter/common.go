@@ -166,13 +166,15 @@ func (syscall *Syscall) AddVlrMap(arg *prog.ArrayType, parentArgMap *ArgMap, arg
 
 type Trace struct {
 	name    string
+	path	string
 	pidComm map[uint64]string
 	events  []*TraceEvent
 }
 
-func newTrace(name string) *Trace {
+func newTrace(name string, path string) *Trace {
 	trace := new(Trace)
 	trace.name = name
+	trace.path = path
 	trace.pidComm = make(map[uint64]string)
 	return trace
 }
@@ -192,7 +194,7 @@ func (t *Trace) ClearEvents() {
 }
 
 func (t *Trace) ReadTracedPidComm() error {
-	pidCommFilePath := fmt.Sprintf("%v/traced_pid_tgid_comm_map.log", t.name)
+	pidCommFilePath := fmt.Sprintf("%v/traced_pid_tgid_comm_map.log", t.path)
 	pidCommFile, err := os.Open(pidCommFilePath)
 	if err != nil {
 		return fmt.Errorf("cannot open %v", pidCommFilePath)
@@ -214,7 +216,7 @@ func (t *Trace) ReadTracedPidComm() error {
 }
 
 func (t *Trace) ReadSyscallTrace(syscall *Syscall, ignore bool) error {
-	traceFilePath := fmt.Sprintf("%v/raw_trace_%v.dat", t.name, syscall.name)
+	traceFilePath := fmt.Sprintf("%v/raw_trace_%v.dat", t.path, syscall.name)
 	traceFile, err := os.Open(traceFilePath)
 	if err != nil {
 		return fmt.Errorf("cannot open %v", traceFilePath)
