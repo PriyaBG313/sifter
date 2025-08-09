@@ -124,7 +124,7 @@ index a4f3ea6c5f37..172dfefc099f 100644
  			verbose(env, "sleepable progs cannot use bpf_spin_lock yet\n");
  			return -EINVAL;
 diff --git a/kernel/trace/bpf_trace.c b/kernel/trace/bpf_trace.c
-index cc98e523af42..f344ad2f2832 100644
+index cc98e523af42..b0e92e7d37df 100644
 --- a/kernel/trace/bpf_trace.c
 +++ b/kernel/trace/bpf_trace.c
 @@ -33,6 +33,12 @@
@@ -140,7 +140,7 @@ index cc98e523af42..f344ad2f2832 100644
  #define CREATE_TRACE_POINTS
  #include "bpf_trace.h"
  
-@@ -142,6 +148,60 @@ unsigned int trace_call_bpf(struct trace_event_call *call, void *ctx)
+@@ -142,6 +148,64 @@ unsigned int trace_call_bpf(struct trace_event_call *call, void *ctx)
  	return ret;
  }
  
@@ -150,20 +150,24 @@ index cc98e523af42..f344ad2f2832 100644
 +	int ret;
 +	struct file *file;
 +	struct path c_path;
++	unsigned long flags;
 +
 +	ret = kern_path(path, LOOKUP_FOLLOW, &c_path);
 +	if (ret)
 +		return 0;
 +
 +	rcu_read_lock();
++	spin_lock_irqsave(&current->files->file_lock, flags);
 +	file = files_lookup_fd_locked(current->files, fd);
-+
++	//file = fdget(fd);
++	
 +	if (file && file->f_path.dentry) {
 +		ret = (d_backing_inode(c_path.dentry) == d_backing_inode(file->f_path.dentry))? 1 : 0;
 +	} else {
 +		ret = 0;
 +	}
 +
++	spin_unlock_irqrestore(&current->files->file_lock, flags);
 +	rcu_read_unlock();
 +	path_put(&c_path);
 +	return ret;
@@ -201,7 +205,7 @@ index cc98e523af42..f344ad2f2832 100644
  #ifdef CONFIG_BPF_KPROBE_OVERRIDE
  BPF_CALL_2(bpf_override_return, struct pt_regs *, regs, unsigned long, rc)
  {
-@@ -1463,6 +1523,12 @@ bpf_tracing_func_proto(enum bpf_func_id func_id, const struct bpf_prog *prog)
+@@ -1463,6 +1527,12 @@ bpf_tracing_func_proto(enum bpf_func_id func_id, const struct bpf_prog *prog)
  	case BPF_FUNC_probe_read_kernel_str:
  		return security_locked_down(LOCKDOWN_BPF_READ_KERNEL) < 0 ?
  		       NULL : &bpf_probe_read_kernel_str_proto;
