@@ -19,6 +19,7 @@ const (
 	TracerMode Mode = iota
 	FilterMode
 	AnalyzerMode
+	DumpMode
 )
 
 type Verbose int
@@ -171,10 +172,10 @@ type Trace struct {
 	events  []*TraceEvent
 }
 
-func newTrace(name string, path string) *Trace {
+func newTrace(name string) *Trace {
+	fmt.Printf("DEBUG 3 (newTrace): setting t.path to '%s'\n", name)
 	trace := new(Trace)
 	trace.name = name
-	trace.path = path
 	trace.pidComm = make(map[uint64]string)
 	return trace
 }
@@ -194,7 +195,8 @@ func (t *Trace) ClearEvents() {
 }
 
 func (t *Trace) ReadTracedPidComm() error {
-	pidCommFilePath := fmt.Sprintf("%v/traced_pid_tgid_comm_map.log", t.path)
+	fmt.Printf("DEBUG 4 (Trace.ReadTracedPidComm): using t.path '%s' to open file\n", t.name)
+	pidCommFilePath := fmt.Sprintf("%v/traced_pid_tgid_comm_map.log", t.name)
 	pidCommFile, err := os.Open(pidCommFilePath)
 	if err != nil {
 		return fmt.Errorf("cannot open %v", pidCommFilePath)
@@ -215,8 +217,9 @@ func (t *Trace) ReadTracedPidComm() error {
 	return nil
 }
 
+
 func (t *Trace) ReadSyscallTrace(syscall *Syscall, ignore bool) error {
-	traceFilePath := fmt.Sprintf("%v/raw_trace_%v.dat", t.path, syscall.name)
+	traceFilePath := fmt.Sprintf("%v/raw_trace_%v.dat", t.name, syscall.name)
 	traceFile, err := os.Open(traceFilePath)
 	if err != nil {
 		return fmt.Errorf("cannot open %v", traceFilePath)
@@ -289,6 +292,94 @@ func (t *Trace) ReadSyscallTrace(syscall *Syscall, ignore bool) error {
 	fmt.Printf("ReadSyscallTrace %v %d\n", traceFilePath, idx)
 	return nil
 }
+
+/*
+func (t *Trace) ReadSyscallTrace(syscall *Syscall, ignore bool) error {
+	traceFilePath := fmt.Sprintf("%v/raw_trace_%v.dat", t.path, syscall.name)
+	traceFile, err := os.Open(traceFilePath)
+	if err != nil {
+		// This is not an error, the file might just not exist for this run.
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("cannot open %v", traceFilePath)
+	}
+	fmt.Printf("ReadSyscallTrace %v\n", traceFilePath)
+	defer traceFile.Close()
+
+	br := bufio.NewReader(traceFile)
+
+	// Calculate the total size of one full record for this syscall.
+	// This is the sum of all associated map value sizes.
+	var recordSize int64
+	isOtherSyscall := syscall.def == nil
+	if isOtherSyscall {
+		// For other_syscalls, the record is sys_enter_ent_t (64 bytes) + nr (4 bytes)
+		recordSize = 68
+	} else {
+		// For normal syscalls, it's sys_enter_ent_t (64 bytes) + all other arg maps.
+		recordSize = 64 + int64(syscall.size)
+	}
+
+	// Read one full record at a time
+	for {
+		recordBuffer := make([]byte, recordSize)
+		_, err := io.ReadFull(br, recordBuffer)
+		if err != nil {
+			if err == io.EOF {
+				break // End of file, we're done.
+			}
+			return fmt.Errorf("%v ended unexpectedly: %v", traceFilePath, err)
+		}
+
+		// Use an in-memory reader to parse the record buffer
+		recordReader := bytes.NewReader(recordBuffer)
+
+		var ts, id uint64
+		binary.Read(recordReader, binary.LittleEndian, &ts)
+		binary.Read(recordReader, binary.LittleEndian, &id)
+
+		fmt.Printf("DEBUG: Read record from '%s', timestamp: %d\n", syscall.name, ts)
+		if ts == 0 {
+			continue
+		}
+
+		te := newTraceEvent(ts, id, t, syscall)
+
+		// Read the main data portion into te.data
+		// For other_syscalls, this is the remaining 48 bytes of the sys_enter_ent_t.
+		// For normal syscalls, it's the remaining 48 bytes + the size of all extra args.
+		if _, err = io.ReadFull(recordReader, te.data); err != nil {
+			return fmt.Errorf("failed to parse record data block: %v", err)
+		}
+
+		// If it's an "other_syscall", read the final 'nr' field from the buffer.
+		if isOtherSyscall {
+			var nr uint32
+			if err = binary.Read(recordReader, binary.LittleEndian, &nr); err != nil {
+				return fmt.Errorf("failed to parse 'nr' for other_syscall: %v", err)
+			}
+
+			// Find or create the actual syscall definition based on the nr
+			if _, ok := syscall.syscalls[uint64(nr)]; !ok {
+				newSyscall := new(Syscall)
+				newSyscall.name = fmt.Sprintf("syscall_%v", nr)
+				newSyscall.def = new(prog.Syscall)
+				newSyscall.def.NR = uint64(nr)
+				newSyscall.def.Name = fmt.Sprintf("syscall_%v", nr)
+				newSyscall.def.CallName = fmt.Sprintf("syscall_%v", nr)
+				syscall.syscalls[uint64(nr)] = newSyscall
+			}
+			te.syscall = syscall.syscalls[uint64(nr)]
+		}
+
+		if te.ts != 0 {
+			t.events = append(t.events, te)
+		}
+	}
+	return nil
+}
+*/
 
 func (t *Trace) FindEventBefore(id uint64, nr uint64, ts uint64, start int) int {
 //	fmt.Printf("[%.9f] findEventBefore (%d:%d) nr:%v %v\n", float64(ts)/1000000000.0, uint32(id), id>>32, nr, start)

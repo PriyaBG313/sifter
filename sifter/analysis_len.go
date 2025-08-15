@@ -257,27 +257,23 @@ func (a *LenAnalysis) SetGenValuesConstraintThreshold(th int) {
 	a.valuesConstraintTh = th
 }
 
-func (a *LenAnalysis) isLenTypeInner(arg prog.Type) bool{
-	if _, isLenArg := arg.(*prog.LenType); isLenArg {
+
+func (a *LenAnalysis) isLenType(arg prog.Field) bool {
+	if arg.Direction == prog.DirOut {
+		return false
+	}
+	if _, isLenArg := arg.Type.(*prog.LenType); isLenArg {
 		return true
 	}
 	lenStrings := []string{"size", "len", "length"}
 	for _, lenString := range lenStrings {
-		if strings.Contains(arg.Name(), lenString) {
+		if strings.Contains(arg.Name, lenString) {
 			return true
 		}
 	}
 	return false
 }
 
-func (a *LenAnalysis) isLenType(arg prog.Field) bool {
-	if arg.Direction == prog.DirOut {
-		return false
-	}
-
-	return a.isLenTypeInner(arg.Type)
-}
-	
 func (a *LenAnalysis) Init(TracedSyscalls *map[string][]*Syscall) {
 	a.argLenRanges = make(map[*ArgMap]map[prog.Type]*LenRange)
 	a.regLenRanges = make(map[*Syscall]map[prog.Type]*LenRange)
@@ -309,7 +305,8 @@ func (a *LenAnalysis) Init(TracedSyscalls *map[string][]*Syscall) {
 						}
 					}
 				} else {
-					if a.isLenTypeInner(argMap.arg) {
+					if _, ok := argMap.arg.(*prog.LenType); ok {
+						fmt.Printf("Debug: Analysis len: type is lentype \n")
 						a.argLenRanges[argMap][argMap.arg] = newLenRange()
 						a.argLenRanges[argMap][argMap.arg].config.valuesConstraintTh = a.valuesConstraintTh
 						if config, ok := a.rangeConfigs[fmt.Sprintf("%v", argMap.name)]; ok {

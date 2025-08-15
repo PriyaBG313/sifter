@@ -113,20 +113,20 @@ func (a *ValueRangeAnalysis) ProcessTraceEvent(te *TraceEvent, flag AnalysisFlag
 				offset += field.Size()
 			}
 		} else {
-			if _, isPtrArg := arg.arg.(*prog.PtrType); !isPtrArg && arg.arg.Name() != "ptr" {
-				_, tr := te.GetData(offset, arg.arg.Size())
-				if (a.argRanges[arg][0] > tr) {
-					if flag == TrainFlag {
-						a.argRanges[arg][0] = tr
+			if _, isPtrArg := arg.arg.(*prog.PtrType); !isPtrArg {
+					_, tr := te.GetData(offset, arg.arg.Size())
+					if (a.argRanges[arg][0] > tr) {
+						if flag == TrainFlag {
+							a.argRanges[arg][0] = tr
+						}
+						msgs = append(msgs, fmt.Sprintf("%v:l %x", arg.name, tr))
 					}
-					msgs = append(msgs, fmt.Sprintf("%v:l %x", arg.name, tr))
-				}
-				if (a.argRanges[arg][1] < tr) {
-					if flag == TrainFlag {
-						a.argRanges[arg][1] = tr
+					if (a.argRanges[arg][1] < tr) {
+						if flag == TrainFlag {
+							a.argRanges[arg][1] = tr
+						}
+						msgs = append(msgs, fmt.Sprintf("%v:u %x", arg.name, tr))
 					}
-					msgs = append(msgs, fmt.Sprintf("%v:u %x", arg.name, tr))
-				}
 			}
 			offset += arg.size
 		}

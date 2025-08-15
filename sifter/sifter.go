@@ -159,6 +159,8 @@ func NewSifter(f Flags) (*Sifter, error) {
 			defaultRetVal:  "0",
 			errorRetVal:    "1",
 		}
+	} else if f.Mode == "dump" {
+		s.mode = DumpMode
 	} else {
 		return nil, fmt.Errorf("invalid mode. expected \"tracer\"/\"filter\"")
 	}
@@ -895,14 +897,22 @@ func (sifter *Sifter) GenerateSyscallFilter(syscall *Syscall) {
 	fmt.Fprintf(s, "    %v ret = %v;\n", sifter.ctx.defaultRetType, sifter.ctx.defaultRetVal)
 	fmt.Fprintf(s, "    char dev [] = \"/dev/%v\";\n", sifter.devName)
 	fmt.Fprintf(s, "\n")
+	fdIndexes := syscall.GetFDIndex()
 	if syscall.def.CallName == "ioctl" {
 		cmd := syscall.def.Args[1].Type.(*prog.ConstType).Val
 		fmt.Fprintf(s, "    if (ctx->nr == %v && ctx->args[1] == 0x%x && bpf_check_fd(dev, ctx->args[0])) {\n", syscall.def.NR, cmd)
 	} else {
-		fmt.Fprintf(s, "    if (ctx->nr == %v && bpf_check_fd(dev, ctx->args[%v])) {\n", syscall.def.NR, syscall.GetFDIndex()[0])
+		
+		if len(fdIndexes) > 0 {
+			fmt.Fprintf(s, "    if (ctx->nr == %v && bpf_check_fd(dev, ctx->args[%v])) {\n", syscall.def.NR, syscall.GetFDIndex()[0])
+		} else {
+			fmt.Fprintf(s, "   if (ctx->nr == %v) { // Warning: No FD found for this syscall\n", syscall.def.NR)
+			}
 	}
 	fmt.Fprintf(s, "        struct syscall_info info = {};\n")
-	fmt.Fprintf(s, "        info.fd = ctx->args[%v];\n", syscall.GetFDIndex()[0])
+	if len(fdIndexes) > 0 {
+		fmt.Fprintf(s, "        info.fd = ctx->args[%v];\n", syscall.GetFDIndex()[0])
+	}
 	fmt.Fprintf(s, "\n")
 	for i, arg := range syscall.def.Args {
 		path := fmt.Sprintf("ctx->%v[%v]", sifter.ctx.syscallArgs, i)
@@ -1752,6 +1762,7 @@ func (sifter *Sifter) GenerateFilterSource() {
 
 func (sifter *Sifter) WriteFilterSourceFile() {
 	if a := sifter.GetAnalysis("pattern analysis"); a != nil {
+		fmt.Printf("Debug: writefiltersource: pattern analysis exists")
 		pa, _ := a.(*PatternAnalysis)
 		for _, sc := range pa.uniqueSyscallList {
 			outf, err := os.Create(filepath.Join(sifter.outSourceDir, sc.syscall.name + ".c"))
@@ -1930,9 +1941,10 @@ func (sifter *Sifter) DoAnalyses(name string, flag AnalysisFlag, analysesConfigs
 	return updatedTeNum, updatedTeOLNum
 }
 
-func (sifter *Sifter) ReadSyscallTrace(dirPath string, tracePath string) int {
+func (sifter *Sifter) ReadSyscallTrace(dirPath string) int {
 
-	trace := newTrace(dirPath, tracePath)
+	fmt.Printf("DEBUG 2 (Sifter.ReadSyscallTrace): received path is '%s'\n", dirPath)
+	trace := newTrace(dirPath)
 	if err := trace.ReadTracedPidComm(); err != nil {
 		fmt.Printf("failed to read traced pid comm map: %v\n", err)
 	}
@@ -2039,8 +2051,6 @@ func (sifter *Sifter) GetTrainTestFiles() ([]os.FileInfo, []os.FileInfo) {
 	testFileNum := sifter.traceNum - trainFileNum
 	usedFileMap := make(map[int32]bool)
 	traceFileNum := len(sifter.traceFiles)
-	fmt.Printf("Debug: traceFileNum: %d", traceFileNum);
-	fmt.Printf("Debug: traceNum: %d", sifter.traceNum);
 	for i := 0; i < traceFileNum; i++ {
 		r := rand.Int31n(int32(traceFileNum))
 		if len(testFiles) == testFileNum {
@@ -2115,7 +2125,7 @@ func (sifter *Sifter) AnalyzeSinlgeTrace() {
 	for ri, round := range sifter.analysisRounds {
 		fmt.Print("================================================================================\n")
 		fmt.Printf("#Round %v: %v\n", ri, fileNames(round.files))
-		sifter.ReadSyscallTrace(sifter.traceDir, sifter.traceDir)
+		sifter.ReadSyscallTrace(sifter.traceDir)
 		sifter.DoAnalyses(sifter.traceDir, round.flag, round.ac)
 
 		for _, ac := range round.ac {
@@ -2206,7 +2216,7 @@ func (sifter *Sifter) TrainAndTest() {
 			for fi, file := range round.files {
 				fmt.Printf("#New Trace %v-%v-%v: %v\n", i, ri, fi, file.Name())
 				filePath := sifter.traceDir + "/" + file.Name()
-				traceSize[ri] += sifter.ReadSyscallTrace(filePath, sifter.traceDir)
+				traceSize[ri] += sifter.ReadSyscallTrace(filePath)
 				fp, tp := sifter.DoAnalyses(filePath, round.flag, round.ac)
 				fps[ri] += fp
 				tps[ri] += tp
@@ -2230,4 +2240,49 @@ func (sifter *Sifter) TrainAndTest() {
 	fmt.Printf("#Testing error:\n")
 	fmt.Printf("#FP:%d TN:%d\n", fpsTotal[2], tpsTotal[2])
 	fmt.Printf("#Avg FP: %.3f\n", float64(fpsTotal[2])/float64(sifter.Iter()))
+}
+
+func (sifter *Sifter) DumpSingleTrace() {
+	fmt.Printf("Attempting to read and dump trace directory: %s\n", sifter.traceDir)
+
+	// ReadSyscallTrace will read all the trace files in the directory.
+	// It populates the sifter.traces map.
+	traceEventCount := sifter.ReadSyscallTrace(sifter.traceDir)
+
+	if traceEventCount == 0 {
+		fmt.Println("Error: No trace events were read. The file might be empty or a parsing error occurred.")
+		return
+	}
+
+	// Get the trace data from the map (key is the directory path)
+	trace, ok := sifter.traces[sifter.traceDir]
+	if !ok {
+		fmt.Println("Error: Trace data not found in map after reading.")
+		return
+	}
+
+	fmt.Printf("\n--- Trace Dump Start ---\n")
+	fmt.Printf("Successfully parsed %d events.\n\n", len(trace.events))
+
+	// Loop through the first 50 events to avoid a giant wall of text
+	limit := 50
+	if len(trace.events) < limit {
+		limit = len(trace.events)
+	}
+
+	for i := 0; i < limit; i++ {
+		te := trace.events[i]
+		// Print the contents of each TraceEvent struct
+		fmt.Printf("Event %-3d | TS: %-20d | Syscall: %-40s | PID: %d | Tags: %v\n",
+			i,
+			te.ts,
+			te.syscall.name,
+			uint32(te.id),
+			te.tags)
+	}
+
+	if len(trace.events) > limit {
+		fmt.Printf("\n... and %d more events.\n", len(trace.events)-limit)
+	}
+	fmt.Printf("--- Trace Dump End ---\n")
 }

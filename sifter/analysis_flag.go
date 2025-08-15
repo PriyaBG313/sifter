@@ -199,35 +199,24 @@ func (a *FlagAnalysis) AddBitFields(arg string, bf [][]int) {
 	a.bitFields[arg] = bf
 }
 
-// Helper to get the field name from a prog.Type if it's a prog.Field
-func getFieldName(t prog.Type) string {
-	return t.Name()
-}
-
-func (a *FlagAnalysis) isFlagsTypeInner(arg prog.Type, syscall *Syscall) bool {
-	if syscall.def.CallName == "ioctl" && arg == syscall.def.Args[1].Type {
+func (a *FlagAnalysis) isFlagsType(arg prog.Field, syscall *Syscall) bool {
+	if arg.Direction == prog.DirOut {
+		return false
+	}
+	if syscall.def.CallName == "ioctl" && arg.Type == syscall.def.Args[1].Type {
 		return true
 	}
-	if _, isFlagsArg := arg.(*prog.FlagsType); isFlagsArg {
+	if _, isFlagsArg := arg.Type.(*prog.FlagsType); isFlagsArg {
 		return true
 	}
 	flagStrings := []string{"flag", "flags", "type"}
 	for _, flagString := range flagStrings {
-		if strings.Contains(getFieldName(arg), flagString) {
+		if strings.Contains(arg.Name, flagString) {
 			return true
 		}
 	}
 	return false
 }
-
-func (a *FlagAnalysis) isFlagsType(arg prog.Field, syscall *Syscall) bool {
-	if arg.Direction == prog.DirOut {
-		return false
-	}
-
-	return a.isFlagsTypeInner(arg.Type, syscall)
-}
-
 
 func (a *FlagAnalysis) Init(TracedSyscalls *map[string][]*Syscall) {
 	a.argFlags = make(map[*ArgMap]map[prog.Type]*FlagSet)
@@ -265,7 +254,8 @@ func (a *FlagAnalysis) Init(TracedSyscalls *map[string][]*Syscall) {
 						offset += field.Size()
 					}
 				} else {
-					if a.isFlagsTypeInner(argMap.arg, syscall) {
+					if _, ok := argMap.arg.(*prog.FlagsType); ok {
+						fmt.Printf("Debug: analysis flag: is flag type\n")
 						_, noTag := a.noTagFlags[fmt.Sprintf("%v", argMap.name)]
 						bf, _ := a.bitFields[fmt.Sprintf("%v", argMap.name)]
 						fmt.Printf("%v_%v %v\n", syscall.name, argMap.name, noTag)
