@@ -499,7 +499,6 @@ private:
                     sifter_arg *arg = sc->args[a].get();
                     android::bpf::findMapEntry(arg->fd, &i, arg->buf.get());
                     ofs.write(reinterpret_cast<const char*>(arg->buf.get()), arg->size);
-
                     if (m_verbose > 3) {
                         std::cout << std::endl;
                         print_buffer(arg->buf.get(), arg->size);
@@ -507,6 +506,8 @@ private:
                 }
                 i = ++i & (sc->ctr_size - 1);
             }
+	    ofs.flush();
+
             update_period = (last_update_period + update_period) / 2;
             if (update_period > 10000) {
                 update_period = 10000;
