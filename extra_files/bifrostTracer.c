@@ -8,6 +8,7 @@
 #include "tracer_id.h"
 #include <stdbool.h>
 
+
 #define DEFINE_BPF_MAP_NO_ACCESSORS(the_map, TYPE, KeyType, ValueType, num_entries) \
 struct {									 \
 	__uint(type, BPF_MAP_TYPE_##TYPE);                                       \
@@ -998,10 +999,15 @@ int __always_inline trace_ioctl_KBASE_IOCTL_CONTEXT_PRIORITY_CHECK(sys_enter_arg
     //arg kbase_ioctl_context_priority_check kbase_ioctl_context_priority_check 0xf8fe80 1
     struct kbase_ioctl_context_priority_check v1;
     if (bpf_probe_read_sleepable(&v1, sizeof(v1), (void *)ctx->regs[2]+0) < 0)
+    {
+	    bpf_printk("SIFTER: bpf_probe_read_sleepable: failed");
         return 1;
+    }
     struct kbase_ioctl_context_priority_check *ioctl_KBASE_IOCTL_CONTEXT_PRIORITY_CHECK_arg_p = bpf_ioctl_KBASE_IOCTL_CONTEXT_PRIORITY_CHECK_arg_lookup_elem(&idx);
-    if (!ioctl_KBASE_IOCTL_CONTEXT_PRIORITY_CHECK_arg_p)
+    if (!ioctl_KBASE_IOCTL_CONTEXT_PRIORITY_CHECK_arg_p) {
+	    bpf_printk("SIFTER: bpf map lookup failed");
         return 1;
+    }
     //arg queue_group_priority queue_group_priority 0xf8fe80 1
     ioctl_KBASE_IOCTL_CONTEXT_PRIORITY_CHECK_arg_p->priority = v1.priority;
     return ret;
@@ -3288,17 +3294,20 @@ int __always_inline trace_ioctl(sys_enter_args *ctx, uint64_t pid_tgid) {
 void __always_inline trace_syscalls(sys_enter_args *ctx, uint64_t pid_tgid) {
     int nr = ctx->id;
     int fd_is_dev = 0;
-    char dev [] = "/dev/bifrost";
+    char dev [] = "/dev/mali0";
+
+    
     uint8_t *fd_mask = bpf_syscall_fd_mask_lookup_elem(&nr);
     if (fd_mask) {
         for (int i = 0; i < 5; i++) {
-            if ((*fd_mask >> i) & 0x01 &&
+            if (((*fd_mask >> i) & 0x01) &&
                 (bpf_check_fd(dev, ctx->regs[i]))) {
                 fd_is_dev = 1;
                 break;
             }
         }
     }
+    
     if (fd_is_dev) {
         if (nr == 29) {
             trace_ioctl(ctx, pid_tgid);
