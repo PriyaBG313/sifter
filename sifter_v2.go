@@ -34,9 +34,8 @@ func main() {
 		failf("failed to initialize sifter. err: %v", err)
 	}
 
-	//s.GenerateSource()
+	s.GenerateSource()
 	if s.Mode() == sifter.TracerMode {
-		s.GenerateSource() //I moved this from outside the if to here
 		s.WriteSourceFile()
 		s.WriteAgentConfigFile()
 	} else if s.Mode() == sifter.AnalyzerMode {

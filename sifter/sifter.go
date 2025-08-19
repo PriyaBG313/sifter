@@ -606,7 +606,7 @@ func (sifter *Sifter) GenerateArgTracer(s *bytes.Buffer, syscall *Syscall, arg p
 		if sifter.mode == TracerMode || sifter.mode == AnalyzerMode {
 			fmt.Fprintf(s, "    %v%v = %v;\n", derefOp, dstPath, srcPath)
 		}
-		if sifter.mode == FilterMode {
+		if sifter.mode == FilterMode || sifter.mode ==DumpMode {
 			constraints := sifter.CheckArgConstraints(syscall, arg.Type, parent, *depth)
 			for _, c := range constraints {
 				if taggingConstraint, ok := c.(*TaggingConstraint); ok {
@@ -660,7 +660,7 @@ func (sifter *Sifter) GenerateArgTracer(s *bytes.Buffer, syscall *Syscall, arg p
 				syscall.AddArgMap(t.Elem, parentArgMap, argName, srcPath, argBufType, 10)
 				fmt.Fprintf(s, "    %v", indent(sifter.GenerateArgMapLookup(argName, argBufType), 1))
 				fmt.Fprintf(s, "    %v", indent(sifter.GenerateCopyFromUser(srcPath, dstPath, "0", true), 1))
-			} else if sifter.mode == FilterMode {
+			} else if sifter.mode == FilterMode || sifter.mode == DumpMode {
 				parent = syscall.AddArgMap(t.Elem, parentArgMap, argName, srcPath, argTypeName(t.Elem), 10)
 				parentVarName := strings.Split(srcPath, ".")[0]
 				arrayFieldName := strings.Split(srcPath, ".")[1]
@@ -759,7 +759,7 @@ func (sifter *Sifter) GenerateArgTracer(s *bytes.Buffer, syscall *Syscall, arg p
 				if sifter.mode == TracerMode || sifter.mode == AnalyzerMode {
 					fmt.Fprintf(s, "    %v%v[%v] = %v[%v];\n", derefOp, dstPath, i, srcPath, i)
 				}
-				if sifter.mode == FilterMode {
+				if sifter.mode == FilterMode || sifter.mode == DumpMode{
 					constraints := sifter.CheckArgConstraints(syscall, arg.Type, parent, *depth)
 					for _, c := range constraints {
 						fmt.Fprintf(s, "    %v", indent(c.String(fmt.Sprintf("%v[%v]", srcPath, i), "ret", sifter.ctx.defaultRetVal, sifter.ctx.errorRetVal), 1))
@@ -1006,7 +1006,7 @@ func (sifter *Sifter) GenerateSyscallTracer(syscall *Syscall) {
 			offset := 0
 			sifter.GenerateArgTracer(s, syscall, arg, path, syscall.name, "", nil, &offset)
 		}
-	} else if sifter.mode == FilterMode {
+	} else if sifter.mode == FilterMode || sifter.mode == DumpMode {
 		syscallUnused := true;
 		if a := sifter.GetAnalysis("pattern analysis"); a != nil {
 			pa, _ := a.(*PatternAnalysis)
@@ -1029,7 +1029,7 @@ func (sifter *Sifter) GenerateSyscallTracer(syscall *Syscall) {
 				path := fmt.Sprintf("ctx->%v[%v]", sifter.ctx.syscallArgs, i)
 				offset := 0
 				sifter.GenerateArgTracer(s, syscall, arg, path, syscall.name, "", nil, &offset)
-				if sifter.mode == FilterMode {
+				if sifter.mode == FilterMode || sifter.mode == DumpMode{
 					constraints := sifter.CheckArgConstraints(syscall, arg.Type, nil, 0)
 					for _, c := range constraints {
 						fmt.Fprintf(s, "    %v", indent(c.String(path, "ret", sifter.ctx.defaultRetVal, sifter.ctx.errorRetVal), 1))
@@ -1059,7 +1059,7 @@ func (sifter *Sifter) GenerateIoctlTracer(syscalls []*Syscall) {
 	fmt.Println(s, "    switch (ioctl_cmd) {\n")
 	
 	for _, syscall := range syscalls {
-		if sifter.mode == FilterMode && sifter.run == 2 && !strings.Contains(syscall.name, "kgsl") {
+		if (sifter.mode == FilterMode || sifter.mode == DumpMode) && sifter.run == 2 && !strings.Contains(syscall.name, "kgsl") {
 			continue
 		}
 		cmd, ok := syscall.def.Args[1].Type.(*prog.ConstType)
@@ -1074,7 +1074,7 @@ func (sifter *Sifter) GenerateIoctlTracer(syscalls []*Syscall) {
 		}
 	}
 	fmt.Fprintf(s, "    default:\n")
-	if sifter.mode == FilterMode {
+	if sifter.mode == FilterMode || sifter.mode == DumpMode {
 		fmt.Fprintf(s, "        ret = %v;\n", sifter.ctx.errorRetVal)
 	} else {
 		fmt.Fprintf(s, "        ret = trace_other_syscalls(ctx, pid_tgid, 0x400000000000000);\n")
@@ -1232,7 +1232,7 @@ func (sifter *Sifter) GenerateProgSection() {
 		fmt.Fprintf(s, "	return 0;\n")
 		fmt.Fprintf(s, "}\n")
 	}
-	if sifter.mode == FilterMode {
+	if sifter.mode == FilterMode || sifter.mode == DumpMode {
 		s := sifter.GetSection("main")
 		fmt.Fprintf(s, "SEC(\"seccomp\")\n")
 		fmt.Fprintf(s, "int filter(struct seccomp_data *ctx)\n")
@@ -1943,7 +1943,6 @@ func (sifter *Sifter) DoAnalyses(name string, flag AnalysisFlag, analysesConfigs
 
 func (sifter *Sifter) ReadSyscallTrace(dirPath string) int {
 
-	fmt.Printf("DEBUG 2 (Sifter.ReadSyscallTrace): received path is '%s'\n", dirPath)
 	trace := newTrace(dirPath)
 	if err := trace.ReadTracedPidComm(); err != nil {
 		fmt.Printf("failed to read traced pid comm map: %v\n", err)

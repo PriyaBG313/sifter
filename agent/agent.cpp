@@ -32,6 +32,8 @@ extern "C" {
 
 #include "tracer_id.h"
 
+int cleanup_bpf(const std::string& base_name);
+
 using android::base::unique_fd;
 using std::chrono::steady_clock;
 using std::chrono::duration;
@@ -354,8 +356,8 @@ private:
     std::vector<sifter_map> m_maps;
     std::vector<sifter_lut> m_luts;
     std::vector<sifter_rb> m_rbs;
-    std::vector<sifter_syscall *> m_syscalls;
-    std::vector<std::thread *> m_update_threads;
+    std::vector<std::unique_ptr<sifter_syscall>> m_syscalls;
+    std::vector<std::unique_ptr<std::thread>> m_update_threads;
     std::vector<int> m_proc_bitness;
     std::set<int> m_ignored_pids;
     std::vector<std::string> m_target_prog_comm_list;
@@ -463,8 +465,6 @@ private:
             return;
         }
 
-        write_user_event(ofs, EVENT_USER_TRACE_START);
-
         while (1) {
             android::bpf::findMapEntry(sc->ctr_fd, &zero_idx, &curr_ctr_struct);
             curr_ctr = curr_ctr_struct.val;
@@ -494,11 +494,14 @@ private:
             }
 
             int i = start;
-            while (i != end) {
+	     while (i != end) {
                 for (int a = 0; a < sc->args.size(); a++) {
                     sifter_arg *arg = sc->args[a].get();
-                    android::bpf::findMapEntry(arg->fd, &i, arg->buf.get());
-                    ofs.write(reinterpret_cast<const char*>(arg->buf.get()), arg->size);
+		
+                    if (android::bpf::findMapEntry(arg->fd, &i, arg->buf.get()) != 0) {
+			    std::cerr<<"Error failed to read from BPF map for syscall "<< sc->syscall_name << " at index " << i << std::endl;
+		    }   
+		    ofs.write(reinterpret_cast<const char*>(arg->buf.get()), arg->size);
                     if (m_verbose > 3) {
                         std::cout << std::endl;
                         print_buffer(arg->buf.get(), arg->size);
@@ -507,8 +510,11 @@ private:
                 i = ++i & (sc->ctr_size - 1);
             }
 	    ofs.flush();
-
-            update_period = (last_update_period + update_period) / 2;
+		
+	    if (!ofs) {
+		    std::cerr<<"ERROR: Failed to write to trace file for syscall "
+              << sc->syscall_name << ". Disk might be full." << std::endl;}
+	    update_period = (last_update_period + update_period) / 2;
             if (update_period > 10000) {
                 update_period = 10000;
             }
@@ -517,7 +523,6 @@ private:
             if (!m_args_update_start && ctr_diff == 0)
                 break;
         }
-
         ofs.close();
     }
 
@@ -826,8 +831,9 @@ error:
 
     void start_update_maps() {
         m_maps_update_start = 1;
-        std::thread *th = new std::thread(&sifter_tracer::update_maps_thread, this);
-        m_update_threads.push_back(th);
+        //std::thread *th = new std::thread(&sifter_tracer::update_maps_thread, this);
+        //m_update_threads.push_back(th);
+	m_update_threads.push_back(std::make_unique<std::thread>(&sifter_tracer::update_maps_thread, this));    
     }
 
     void stop_update_maps() {
@@ -837,8 +843,9 @@ error:
     void start_update_rbs() {
         m_ignored_pids.insert(gettid());
         m_rbs_update_start = 1;
-        std::thread *th = new std::thread(&sifter_tracer::update_rbs_thread, this);
-        m_update_threads.push_back(th);
+        //std::thread *th = new std::thread(&sifter_tracer::update_rbs_thread, this);
+        //m_update_threads.push_back(th);
+	m_update_threads.push_back(std::make_unique<std::thread>(&sifter_tracer::update_rbs_thread, this));
     }
 
     void stop_update_rbs() {
@@ -847,16 +854,25 @@ error:
 
     void start_update_args() {
         m_args_update_start = 1;
-        for (auto s : m_syscalls) {
-            std::thread *th = new std::thread(&sifter_tracer::update_arg_thread, this, s);
-            m_update_threads.push_back(th);
+        for (const auto& s : m_syscalls) {
+            //std::thread *th = new std::thread(&sifter_tracer::update_arg_thread, this, s);
+            //m_update_threads.push_back(th);
+	    m_update_threads.push_back(std::make_unique<std::thread>(&sifter_tracer::update_arg_thread, this, s.get()));
         }
     }
 
     void stop_update_args() {
         m_args_update_start = 0;
     }
-    
+   
+    void waitForThreads() {
+        for (const auto& th : m_update_threads) {
+            if (th->joinable()) {
+                th->join();
+            }
+        }
+    }
+
     operator bool() const {
         return m_init == 1;
     }
@@ -952,8 +968,11 @@ error:
                     int ctr_bits;
                     std::string name;
                     ifs >> ctr_bits >> arg_num >> name;
-                    sifter_syscall *syscall = new sifter_syscall(m_name, name, ctr_bits);
-                    if (!syscall->is_inited()) {
+                    //sifter_syscall *syscall = new sifter_syscall(m_name, name, ctr_bits);
+                    m_syscalls.push_back(std::make_unique<sifter_syscall>(m_name, name, ctr_bits));
+
+		    auto& syscall = m_syscalls.back();
+		    if (!syscall->is_inited()) {
                         std::cerr << "Failed to add syscall (name:" << name << ")"<<std::endl;
                         return;
                     }
@@ -971,9 +990,8 @@ error:
                             std::cout << "Added argument (name:" << arg_name << ")"<<std::endl;
                         }
                     }
-                    m_syscalls.push_back(syscall);
-
-                    break;
+                    //m_syscalls.push_back(syscall);
+		    break;
                 }
                 default:
                     std::cerr << "Failed to parse configuration. Invalid cfg entry \'"
@@ -1025,9 +1043,9 @@ error:
         m_init = 0;
         stop_update_rbs();
         detach_prog();
-        for (auto th : m_update_threads) {
-            th->join();
-        }
+        //for (const auto& th : m_update_threads) {
+          //  th->join();
+        //}
     }
 
 };
@@ -1392,6 +1410,8 @@ int main(int argc, char *argv[]) {
     tracer.stop_update_maps();
     tracer.stop_update_rbs();
     tracer.stop_update_args();
+
+    tracer.waitForThreads();
     std::cout<<"Stopped"<<std::endl;
     cleanup_bpf("bifrostTracer");
     return 0;
