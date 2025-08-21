@@ -743,9 +743,11 @@ func (sifter *Sifter) GenerateArgTracer(s *bytes.Buffer, syscall *Syscall, arg p
 							fmt.Fprintf(s, "        goto %v;\n", endLabelName)
 							fmt.Fprintf(s, "    }\n")
 							fmt.Fprintf(s, "    %v\n", indent(sifter.GenerateCopyFromUser(srcPath, stackVarName, offName, false), 1))
-
-							for _, field := range t.Elem.(*prog.StructType).Fields {
-								sifter.GenerateArgTracer(s, syscall, field, stackVarName, argName, dstPath+accessOp, parent, depth)
+		
+							if _, ok := t.Elem.(*prog.StructType); ok {
+								for _, field := range t.Elem.(*prog.StructType).Fields {
+									sifter.GenerateArgTracer(s, syscall, field, stackVarName, argName, dstPath+accessOp, parent, depth)
+								}
 							}
 
 							fmt.Fprintf(s, "    %v += sizeof(%v);\n", offName, stackVarName)

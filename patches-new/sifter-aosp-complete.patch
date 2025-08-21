@@ -1,0 +1,1292 @@
+diff --git a/android/abi_gki_aarch64.stg b/android/abi_gki_aarch64.stg
+index 99755075c7ec..0b8afe835e10 100644
+--- a/android/abi_gki_aarch64.stg
++++ b/android/abi_gki_aarch64.stg
+@@ -279656,9 +279656,17 @@ enumeration {
+       name: "BPF_FUNC_user_ringbuf_drain"
+       value: 209
+     }
++    enumerator {
++      name: "BPF_FUNC_probe_read_sleepable"
++      value: 212
++    }
++    enumerator {
++      name: "BPF_FUNC_check_fd"
++      value: 213
++    }
+     enumerator {
+       name: "__BPF_FUNC_MAX_ID"
+-      value: 210
++      value: 214
+     }
+   }
+ }
+diff --git a/arch/Kconfig b/arch/Kconfig
+index a516ee464580..0caf4fe84448 100644
+--- a/arch/Kconfig
++++ b/arch/Kconfig
+@@ -565,6 +565,14 @@ config SECCOMP_FILTER
+ 	  task-defined system call filtering polices.
+ 
+ 	  See Documentation/userspace-api/seccomp_filter.rst for details.
++#sifter
++config SECCOMP_FILTER_EXTENDED
++	def_bool y
++	bool "Extended BPF seccomp filters"
++	depends on SECCOMP_FILTER && BPF_SYSCALL
++	help
++	  Enables seccomp filters to be written in eBPF, as opposed
++	  to just cBPF filters.
+ 
+ config SECCOMP_CACHE_DEBUG
+ 	bool "Show seccomp filter cache status in /proc/pid/seccomp_cache"
+diff --git a/arch/arm64/include/asm/uaccess.h b/arch/arm64/include/asm/uaccess.h
+index 30ea7b5c3ccb..edce9569fd3a 100644
+--- a/arch/arm64/include/asm/uaccess.h
++++ b/arch/arm64/include/asm/uaccess.h
+@@ -25,6 +25,12 @@
+ #include <asm/ptrace.h>
+ #include <asm/memory.h>
+ #include <asm/extable.h>
++/*sifter*/
++#include <linux/seccomp.h>
++#include <linux/sched.h>
++#include <linux/slab.h>
++/*sifter - end*/
++
+ 
+ static inline int __access_ok(const void __user *ptr, unsigned long size);
+ 
+@@ -240,11 +246,17 @@ do {									\
+ 	might_fault();							\
+ 	if (access_ok(__p, sizeof(*__p))) {				\
+ 		__p = uaccess_mask_ptr(__p);				\
+-		__raw_get_user((x), __p, (err));			\
++		if (unlikely(current->seccomp.mode == SECCOMP_MODE_FILTER)) {				\
++			if (seccomp_copy_from_user((void *)&x, ptr, sizeof(*ptr)) != sizeof(*ptr))	\
++				__raw_get_user((x), __p, (err));	\
++		} else {						\
++			__raw_get_user((x), __p, (err));		\
++		}							\
+ 	} else {							\
+ 		(x) = (__force __typeof__(x))0; (err) = -EFAULT;	\
+ 	}								\
+ } while (0)
++/*sifter - added seccomp checks*/
+ 
+ #define __get_user(x, ptr)						\
+ ({									\
+@@ -366,11 +378,17 @@ extern unsigned long __must_check __arch_copy_from_user(void *to, const void __u
+ ({									\
+ 	unsigned long __acfu_ret;					\
+ 	uaccess_ttbr0_enable();						\
++	if (unlikely(current->seccomp.mode == SECCOMP_MODE_FILTER)) {   \
++		if (seccomp_copy_from_user(to, from, n) == n) {		\
++			return 0;					\
++		}							\
++	}								\
+ 	__acfu_ret = __arch_copy_from_user((to),			\
+ 				      __uaccess_mask_ptr(from), (n));	\
+ 	uaccess_ttbr0_disable();					\
+ 	__acfu_ret;							\
+ })
++/*sifter - add seccomp checks*/
+ 
+ extern unsigned long __must_check __arch_copy_to_user(void __user *to, const void *from, unsigned long n);
+ #define raw_copy_to_user(to, from, n)					\
+diff --git a/arch/arm64/kernel/ptrace.c b/arch/arm64/kernel/ptrace.c
+index 4e2b4cab2566..8991991bbeaf 100644
+--- a/arch/arm64/kernel/ptrace.c
++++ b/arch/arm64/kernel/ptrace.c
+@@ -2175,6 +2175,9 @@ void syscall_trace_exit(struct pt_regs *regs)
+ 		report_syscall(regs, PTRACE_SYSCALL_EXIT);
+ 
+ 	rseq_syscall(regs);
++	//sifter
++	secure_computing_exit();
++	//sifter -end
+ }
+ 
+ /*
+diff --git a/include/linux/bpf.h b/include/linux/bpf.h
+index 69d231e9a199..c682ea3eb26c 100644
+--- a/include/linux/bpf.h
++++ b/include/linux/bpf.h
+@@ -2599,6 +2599,17 @@ extern const struct bpf_func_proto bpf_set_retval_proto;
+ extern const struct bpf_func_proto bpf_get_retval_proto;
+ extern const struct bpf_func_proto bpf_user_ringbuf_drain_proto;
+ 
++/*sifter*/
++extern const struct bpf_func_proto bpf_probe_read_sleepable_proto;
++extern const struct bpf_func_proto bpf_check_fd_proto;
++/*sifter -end*/
++/*sifter*/
++extern const struct bpf_func_proto bpf_lock_fd_proto;
++extern const struct bpf_func_proto bpf_unlock_fd_proto;
++extern const struct bpf_func_proto bpf_waitif_fd_locked_proto;
++/*sifter-end*/
++
++
+ const struct bpf_func_proto *tracing_prog_func_proto(
+   enum bpf_func_id func_id, const struct bpf_prog *prog);
+ 
+diff --git a/include/linux/bpf_verifier.h b/include/linux/bpf_verifier.h
+index 5db390d63a51..d318b7a14264 100644
+--- a/include/linux/bpf_verifier.h
++++ b/include/linux/bpf_verifier.h
+@@ -432,8 +432,9 @@ struct bpf_insn_aux_data {
+ 	bool prune_point;
+ };
+ 
+-#define MAX_USED_MAPS 64 /* max number of maps accessed by one eBPF program */
+-#define MAX_USED_BTFS 64 /* max number of BTFs accessed by one BPF program */
++/*sifter increased MAX_USED_MAPS and MAX_USED_BTFS from 64 to 1024*/
++#define MAX_USED_MAPS 1024 /* max number of maps accessed by one eBPF program */
++#define MAX_USED_BTFS 1024 /* max number of BTFs accessed by one BPF program */
+ 
+ #define BPF_VERIFIER_TMP_LOG_SIZE	1024
+ 
+diff --git a/include/linux/sched.h b/include/linux/sched.h
+index d70914d7d3d4..88aae8a40c81 100644
+--- a/include/linux/sched.h
++++ b/include/linux/sched.h
+@@ -1138,6 +1138,10 @@ struct task_struct {
+ 	unsigned int			sessionid;
+ #endif
+ 	struct seccomp			seccomp;
++	/*sifter*/
++	struct seccomp_fd_lock 		*seccomp_fd_lock;
++	int 				seccomp_fd_lock_state;
++	/*sifter*/
+ 	struct syscall_user_dispatch	syscall_dispatch;
+ 
+ 	/* Thread group tracking: */
+diff --git a/include/linux/seccomp.h b/include/linux/seccomp.h
+index 91ff537c6246..124f42937433 100644
+--- a/include/linux/seccomp.h
++++ b/include/linux/seccomp.h
+@@ -21,6 +21,29 @@
+ #include <linux/atomic.h>
+ #include <asm/seccomp.h>
+ 
++/*sifter*/
++#include <linux/mutex.h>
++
++#define SECCOMP_FD_LOCK_UNLOCK      1
++#define SECCOMP_FD_LOCK_OUTSTANDING 2
++
++#include <linux/rbtree.h>
++struct seccomp_fd_lock {
++	struct rb_node node;
++	struct file* file;
++	struct mutex mutex;
++	atomic_t outstanding;
++};
++
++struct seccomp_cache {
++	struct rb_node node;
++	const void *uptr;
++	void *data;
++	u64 size;
++	u8 valid;
++};
++/*sifter -end*/
++
+ struct seccomp_filter;
+ /**
+  * struct seccomp - the state of a seccomp'ed process
+@@ -37,6 +60,11 @@ struct seccomp {
+ 	int mode;
+ 	atomic_t filter_count;
+ 	struct seccomp_filter *filter;
++	/*sifter*/
++	struct mutex fd_lock_mutex;
++	struct rb_root fd_lock_tree;
++	struct rb_root cache_root;
++	/*sifter-end*/
+ };
+ 
+ #ifdef CONFIG_HAVE_ARCH_SECCOMP_FILTER
+@@ -47,6 +75,14 @@ static inline int secure_computing(void)
+ 		return  __secure_computing(NULL);
+ 	return 0;
+ }
++/*sifter*/
++extern void __secure_computing_exit(void);
++static inline void secure_computing_exit(void)
++{
++	if (unlikely(test_thread_flag(TIF_SECCOMP)))
++		__secure_computing_exit();
++}
++/*sifter-end*/
+ #else
+ extern void secure_computing_strict(int this_syscall);
+ #endif
+@@ -69,11 +105,16 @@ struct seccomp_data;
+ 
+ #ifdef CONFIG_HAVE_ARCH_SECCOMP_FILTER
+ static inline int secure_computing(void) { return 0; }
++/*sifter*/
++static inline void secure_computing_exit() {}
++/*sifter -end*/
+ #else
+ static inline void secure_computing_strict(int this_syscall) { return; }
+ #endif
+ static inline int __secure_computing(const struct seccomp_data *sd) { return 0; }
+-
++/*sifter*/
++static inline void __secure_computing_exit() {}
++/*sifter-end*/
+ static inline long prctl_get_seccomp(void)
+ {
+ 	return -EINVAL;
+@@ -93,7 +134,11 @@ static inline int seccomp_mode(struct seccomp *s)
+ #ifdef CONFIG_SECCOMP_FILTER
+ extern void seccomp_filter_release(struct task_struct *tsk);
+ extern void get_seccomp_filter(struct task_struct *tsk);
++/*sifter*/
++extern unsigned long seccomp_copy_from_user(void *to, const void *from, unsigned long n);
++/*sifter -end*/
+ #else  /* CONFIG_SECCOMP_FILTER */
++
+ static inline void seccomp_filter_release(struct task_struct *tsk)
+ {
+ 	return;
+@@ -102,6 +147,10 @@ static inline void get_seccomp_filter(struct task_struct *tsk)
+ {
+ 	return;
+ }
++static inline unsigned long seccomp_copy_from_user(void *to, const void *from, unsigned long n)
++{
++	return 0;
++}
+ #endif /* CONFIG_SECCOMP_FILTER */
+ 
+ #if defined(CONFIG_SECCOMP_FILTER) && defined(CONFIG_CHECKPOINT_RESTORE)
+diff --git a/include/net/netlink.h b/include/net/netlink.h
+index a686c9041ddc..da73a7c29ac7 100644
+--- a/include/net/netlink.h
++++ b/include/net/netlink.h
+@@ -320,7 +320,7 @@ enum nla_policy_validation {
+ struct nla_policy {
+ 	u8		type;
+ 	u8		validation_type;
+-	u16		len;
++	u64		len;
+ 	union {
+ 		/**
+ 		 * @strict_start_type: first attribute to validate strictly
+diff --git a/include/uapi/linux/bpf.h b/include/uapi/linux/bpf.h
+index 3dfe140df9e6..ae64053e2a37 100644
+--- a/include/uapi/linux/bpf.h
++++ b/include/uapi/linux/bpf.h
+@@ -995,7 +995,9 @@ enum bpf_prog_type {
+ 	BPF_PROG_TYPE_LSM,
+ 	BPF_PROG_TYPE_SK_LOOKUP,
+ 	BPF_PROG_TYPE_SYSCALL, /* a program that can execute syscalls */
+-
++/*sifter*/
++	BPF_PROG_TYPE_SECCOMP,
++/*sifter -end*/
+ 	/*
+ 	 * Until fuse-bpf is upstreamed, this value must be at the end to allow for
+ 	 * other recently-added upstreamed values to be correct.
+@@ -5693,8 +5695,16 @@ union bpf_attr {
+ 	FN(tcp_raw_check_syncookie_ipv6),	\
+ 	FN(ktime_get_tai_ns),		\
+ 	FN(user_ringbuf_drain),		\
++ 	FN(cgrp_storage_get),		\
++ 	FN(cgrp_storage_delete),	\
++ 	FN(probe_read_sleepable),	\
++ 	FN(check_fd),			\
++ 	FN(lock_fd),			\
++ 	FN(unlock_fd),			\
++ 	FN(waitif_fd_locked),		\
+ 	/* */
+ 
++/*sifter added probe_read_sleepable, check_fd, lock_fd, unlock_fd, waitif_fd_locked*/
+ /* integer value in 'imm' field of BPF_CALL instruction selects which helper
+  * function eBPF program intends to call
+  */
+diff --git a/include/uapi/linux/bpf_common.h b/include/uapi/linux/bpf_common.h
+index ee97668bdadb..5b411a6fd769 100644
+--- a/include/uapi/linux/bpf_common.h
++++ b/include/uapi/linux/bpf_common.h
+@@ -1,4 +1,5 @@
+ /* SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note */
++/*sifter changed MAXINSNS*/
+ #ifndef _UAPI__LINUX_BPF_COMMON_H__
+ #define _UAPI__LINUX_BPF_COMMON_H__
+ 
+@@ -51,7 +52,7 @@
+ #define		BPF_X		0x08
+ 
+ #ifndef BPF_MAXINSNS
+-#define BPF_MAXINSNS 4096
++#define BPF_MAXINSNS 65536
+ #endif
+ 
+ #endif /* _UAPI__LINUX_BPF_COMMON_H__ */
+diff --git a/include/uapi/linux/seccomp.h b/include/uapi/linux/seccomp.h
+index 0fdc6ef02b94..1cf158c2263a 100644
+--- a/include/uapi/linux/seccomp.h
++++ b/include/uapi/linux/seccomp.h
+@@ -10,12 +10,19 @@
+ #define SECCOMP_MODE_DISABLED	0 /* seccomp is not in use. */
+ #define SECCOMP_MODE_STRICT	1 /* uses hard-coded filter. */
+ #define SECCOMP_MODE_FILTER	2 /* uses user-supplied filter. */
++/*sifter*/
++#define SECCOMP_MODE_FILTER_EXTENDED 3
++/*sifter-end*/
++
+ 
+ /* Valid operations for seccomp syscall. */
+ #define SECCOMP_SET_MODE_STRICT		0
+ #define SECCOMP_SET_MODE_FILTER		1
+ #define SECCOMP_GET_ACTION_AVAIL	2
+ #define SECCOMP_GET_NOTIF_SIZES		3
++/*sifter*/
++#define SECCOMP_SET_MODE_FILTER_EXTENDED 4
++/*sifter -end*/
+ 
+ /* Valid flags for SECCOMP_SET_MODE_FILTER */
+ #define SECCOMP_FILTER_FLAG_TSYNC		(1UL << 0)
+diff --git a/init/init_task.c b/init/init_task.c
+index 31ceb0e469f7..659856e4f020 100644
+--- a/init/init_task.c
++++ b/init/init_task.c
+@@ -128,6 +128,17 @@ struct task_struct init_task
+ 	.blocked	= {{0}},
+ 	.alloc_lock	= __SPIN_LOCK_UNLOCKED(init_task.alloc_lock),
+ 	.journal_info	= NULL,
++	/*sifter*/
++	.seccomp = {							
++		.mode = 0,						
++		.filter = NULL,						
++		.fd_lock_mutex = __MUTEX_INITIALIZER(init_task.seccomp.fd_lock_mutex),
++		.fd_lock_tree = RB_ROOT,		
++		.cache_root = RB_ROOT,		
++	},								
++	.seccomp_fd_lock	= NULL,					
++	.seccomp_fd_lock_state	= 0,					
++	/*sifter-end*/
+ 	INIT_CPU_TIMERS(init_task)
+ 	.pi_lock	= __RAW_SPIN_LOCK_UNLOCKED(init_task.pi_lock),
+ 	.timer_slack_ns = 50000, /* 50 usec default slack */
+diff --git a/kernel/bpf/syscall.c b/kernel/bpf/syscall.c
+index a5c05a211340..ac4f21ed18a2 100644
+--- a/kernel/bpf/syscall.c
++++ b/kernel/bpf/syscall.c
+@@ -2516,6 +2516,9 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr)
+ 		return -E2BIG;
+ 	if (type != BPF_PROG_TYPE_SOCKET_FILTER &&
+ 	    type != BPF_PROG_TYPE_CGROUP_SKB &&
++	    //sifter
++	    type != BPF_PROG_TYPE_SECCOMP &&
++	    //sifter -end
+ 	    !bpf_capable())
+ 		return -EPERM;
+ 
+diff --git a/kernel/bpf/verifier.c b/kernel/bpf/verifier.c
+index a4f3ea6c5f37..172dfefc099f 100644
+--- a/kernel/bpf/verifier.c
++++ b/kernel/bpf/verifier.c
+@@ -12944,12 +12944,12 @@ static int check_map_prog_compatibility(struct bpf_verifier_env *env,
+ 			verbose(env, "socket filter progs cannot use bpf_spin_lock yet\n");
+ 			return -EINVAL;
+ 		}
+-
++		/*sifter
+ 		if (is_tracing_prog_type(prog_type)) {
+ 			verbose(env, "tracing progs cannot use bpf_spin_lock yet\n");
+ 			return -EINVAL;
+ 		}
+-
++		*/
+ 		if (prog->aux->sleepable) {
+ 			verbose(env, "sleepable progs cannot use bpf_spin_lock yet\n");
+ 			return -EINVAL;
+diff --git a/kernel/exit.c b/kernel/exit.c
+index 7dded98548e8..e93dde56c154 100644
+--- a/kernel/exit.c
++++ b/kernel/exit.c
+@@ -75,6 +75,10 @@
+ #include <trace/hooks/mm.h>
+ #include <trace/hooks/dtask.h>
+ 
++//sifter
++#include <linux/seccomp.h>
++//sifter -end
++
+ /*
+  * The default value should be high enough to not crash a system that randomly
+  * crashes its kernel from time to time, but low enough to at least not permit
+@@ -811,7 +815,12 @@ void __noreturn do_exit(long code)
+ {
+ 	struct task_struct *tsk = current;
+ 	int group_dead;
+-
++	//sifter
++	struct rb_node *node;
++	struct rb_node *next;
++	struct seccomp_cache *cache;
++	//sifter -end
++	
+ 	WARN_ON(irqs_disabled());
+ 
+ 	synchronize_group_exit(tsk, code);
+@@ -820,6 +829,16 @@ void __noreturn do_exit(long code)
+ 
+ 	profile_task_exit(tsk);
+ 	kcov_task_exit(tsk);
++	
++	for (node = rb_first(&tsk->seccomp.cache_root); node;) {
++		next = rb_next(node);
++		cache = container_of(node, struct seccomp_cache, node);
++		kfree(cache->data);
++		rb_erase(node, &tsk->seccomp.cache_root);
++		kfree(cache);
++		node = next;
++	}
++
+ 	kmsan_task_exit(tsk);
+ 
+ 	coredump_task_exit(tsk);
+diff --git a/kernel/fork.c b/kernel/fork.c
+index 51c47b2c828e..6fc08a3e4730 100644
+--- a/kernel/fork.c
++++ b/kernel/fork.c
+@@ -1875,6 +1875,12 @@ static void copy_seccomp(struct task_struct *p)
+ 	 */
+ 	if (p->seccomp.mode != SECCOMP_MODE_DISABLED)
+ 		set_task_syscall_work(p, SECCOMP);
++
++	//sifter
++	mutex_init(&p->seccomp.fd_lock_mutex);
++	p->seccomp.fd_lock_tree = RB_ROOT;
++	p->seccomp.cache_root = RB_ROOT;
++	//sifter-end
+ #endif
+ }
+ 
+diff --git a/kernel/seccomp.c b/kernel/seccomp.c
+index e9852d1b4a5e..866a916d72ee 100644
+--- a/kernel/seccomp.c
++++ b/kernel/seccomp.c
+@@ -46,6 +46,10 @@
+ #include <linux/anon_inodes.h>
+ #include <linux/lockdep.h>
+ 
++//sifter
++#include <linux/bpf.h>
++//sifter -end
++
+ /*
+  * When SECCOMP_IOCTL_NOTIF_ID_VALID was first introduced, it had the
+  * wrong direction flag in the ioctl number. This is the broken one,
+@@ -518,7 +522,13 @@ static inline pid_t seccomp_can_sync_threads(void)
+ static inline void seccomp_filter_free(struct seccomp_filter *filter)
+ {
+ 	if (filter) {
+-		bpf_prog_destroy(filter->prog);
++		//sifter
++		if (bpf_prog_was_classic(filter->prog)) {
++			bpf_prog_destroy(filter->prog);
++		} else {
++			bpf_prog_put(filter->prog);
++		}
++		//sifter -end
+ 		kfree(filter);
+ 	}
+ }
+@@ -652,15 +662,18 @@ static struct seccomp_filter *seccomp_prepare_filter(struct sock_fprog *fprog)
+ 
+ 	BUG_ON(INT_MAX / fprog->len < sizeof(struct sock_filter));
+ 
++	
+ 	/*
+ 	 * Installing a seccomp filter requires that the task has
+ 	 * CAP_SYS_ADMIN in its namespace or be running with no_new_privs.
+ 	 * This avoids scenarios where unprivileged tasks can affect the
+ 	 * behavior of privileged children.
+ 	 */
+-	if (!task_no_new_privs(current) &&
+-			!ns_capable_noaudit(current_user_ns(), CAP_SYS_ADMIN))
+-		return ERR_PTR(-EACCES);
++	//sifter
++	//if (!task_no_new_privs(current) &&
++	//		!ns_capable_noaudit(current_user_ns(), CAP_SYS_ADMIN))
++	//	return ERR_PTR(-EACCES);
++	//sifter -end
+ 
+ 	/* Allocate a new seccomp_filter */
+ 	sfilter = kzalloc(sizeof(*sfilter), GFP_KERNEL | __GFP_NOWARN);
+@@ -710,6 +723,52 @@ seccomp_prepare_user_filter(const char __user *user_filter)
+ 	return filter;
+ }
+ 
++//sifter
++#ifdef CONFIG_SECCOMP_FILTER_EXTENDED
++/**
++ * seccomp_prepare_extended_filter - prepares a user-supplied eBPF fd
++ * @user_filter: pointer to the user data containing an fd.
++ *
++ * Returns 0 on success and non-zero otherwise.
++ */
++static struct seccomp_filter *
++seccomp_prepare_extended_filter(const char __user *user_fd)
++{
++	struct seccomp_filter *sfilter;
++	struct bpf_prog *fp;
++	int fd;
++
++	/* Fetch the fd from userspace */
++	if (get_user(fd, (int __user *)user_fd))
++		return ERR_PTR(-EFAULT);
++
++	/* Allocate a new seccomp_filter */
++	sfilter = kzalloc(sizeof(*sfilter), GFP_KERNEL | __GFP_NOWARN);
++	if (!sfilter)
++		return ERR_PTR(-ENOMEM);
++
++	fp = bpf_prog_get_type(fd, BPF_PROG_TYPE_SECCOMP);
++	if (IS_ERR(fp)) {
++		kfree(sfilter);
++		return ERR_CAST(fp);
++	}
++
++	sfilter->prog = fp;
++	//atomic_set(&sfilter->usage, 1);
++	refcount_set(&sfilter->refs, 1);
++	refcount_set(&sfilter->users, 1);
++
++	return sfilter;
++}
++#else
++static struct seccomp_filter *
++seccomp_prepare_extended_filter(const char __user *filter_fd)
++{
++	return ERR_PTR(-EINVAL);
++}
++#endif
++//sifter -end
++
+ #ifdef SECCOMP_ARCH_NATIVE
+ /**
+  * seccomp_is_const_allow - check if filter is constant allow with given data
+@@ -1195,6 +1254,10 @@ static int __seccomp_filter(int this_syscall, const struct seccomp_data *sd,
+ 	struct seccomp_filter *match = NULL;
+ 	int data;
+ 	struct seccomp_data sd_local;
++	//sifter
++	struct rb_node *node;
++	struct seccomp_cache *cache;
++	//sifter -end
+ 
+ 	/*
+ 	 * Make sure that any changes to mode from another thread have
+@@ -1202,6 +1265,11 @@ static int __seccomp_filter(int this_syscall, const struct seccomp_data *sd,
+ 	 */
+ 	smp_rmb();
+ 
++	for (node = rb_first(&current->seccomp.cache_root); node; node = rb_next(node)) {
++		cache = container_of(node, struct seccomp_cache, node);
++		cache->valid = 0;
++	}
++
+ 	if (!sd) {
+ 		populate_seccomp_data(&sd_local);
+ 		sd = &sd_local;
+@@ -1349,6 +1417,22 @@ int __secure_computing(const struct seccomp_data *sd)
+ 		BUG();
+ 	}
+ }
++
++void __secure_computing_exit(void)
++{
++	if (current->seccomp_fd_lock_state == SECCOMP_FD_LOCK_OUTSTANDING) {
++	//printk("secure_computing_exit 2\n");
++		atomic_dec(&current->seccomp_fd_lock->outstanding);
++		current->seccomp_fd_lock = NULL;
++		current->seccomp_fd_lock_state = 0;
++	}
++	if (current->seccomp_fd_lock_state == SECCOMP_FD_LOCK_UNLOCK) {
++	//printk("secure_computing_exit 1\n");
++		mutex_unlock(&current->seccomp_fd_lock->mutex);
++		current->seccomp_fd_lock = NULL;
++		current->seccomp_fd_lock_state = 0;
++	}
++}
+ #endif /* CONFIG_HAVE_ARCH_SECCOMP_FILTER */
+ 
+ long prctl_get_seccomp(void)
+@@ -1835,9 +1919,18 @@ static bool has_duplicate_listener(struct seccomp_filter *new_child)
+  * Returns 0 on success or -EINVAL on failure.
+  */
+ static long seccomp_set_mode_filter(unsigned int flags,
+-				    const char __user *filter)
+-{
+-	const unsigned long seccomp_mode = SECCOMP_MODE_FILTER;
++				    const char __user *filter, 
++				    //sifter
++				    unsigned long filter_type
++				    //sifter-end
++				    )
++{
++	//sifter
++	//const unsigned long seccomp_mode = SECCOMP_MODE_FILTER;
++	/* We use SECCOMP_MODE_FILTER for both eBPF and cBPF filters */
++	const unsigned long filter_mode = SECCOMP_MODE_FILTER;
++	//sifter - end
++	
+ 	struct seccomp_filter *prepared = NULL;
+ 	long ret = -EINVAL;
+ 	int listener = -1;
+@@ -1847,6 +1940,19 @@ static long seccomp_set_mode_filter(unsigned int flags,
+ 	if (flags & ~SECCOMP_FILTER_FLAG_MASK)
+ 		return -EINVAL;
+ 
++	//sifter
++	/*
++	 * Installing a seccomp filter requires that the task has
++	 * CAP_SYS_ADMIN in its namespace or be running with no_new_privs.
++	 * This avoids scenarios where unprivileged tasks can affect the
++	 * behavior of privileged children.
++	 */
++	if (!task_no_new_privs(current) &&
++	    security_capable(current_cred(), current_user_ns(),
++				     CAP_SYS_ADMIN, CAP_OPT_NOAUDIT) != 0)
++		return -EACCES;
++	//sifter-end
++	
+ 	/*
+ 	 * In the successful case, NEW_LISTENER returns the new listener fd.
+ 	 * But in the failure case, TSYNC returns the thread that died. If you
+@@ -1868,7 +1974,16 @@ static long seccomp_set_mode_filter(unsigned int flags,
+ 		return -EINVAL;
+ 
+ 	/* Prepare the new filter before holding any locks. */
+-	prepared = seccomp_prepare_user_filter(filter);
++	//sifter
++	//prepared = seccomp_prepare_user_filter(filter);
++	if (filter_type == SECCOMP_SET_MODE_FILTER_EXTENDED)
++		prepared = seccomp_prepare_extended_filter(filter);
++	else if (filter_type == SECCOMP_SET_MODE_FILTER)
++		prepared = seccomp_prepare_user_filter(filter);
++	else
++		return -EINVAL;
++	//sifter-end
++	
+ 	if (IS_ERR(prepared))
+ 		return PTR_ERR(prepared);
+ 
+@@ -1897,7 +2012,10 @@ static long seccomp_set_mode_filter(unsigned int flags,
+ 
+ 	spin_lock_irq(&current->sighand->siglock);
+ 
+-	if (!seccomp_may_assign_mode(seccomp_mode))
++	//sifter
++	//if (!seccomp_may_assign_mode(seccomp_mode))
++	if (!seccomp_may_assign_mode(filter_mode))
++	//sifter -end
+ 		goto out;
+ 
+ 	if (has_duplicate_listener(prepared)) {
+@@ -1911,7 +2029,10 @@ static long seccomp_set_mode_filter(unsigned int flags,
+ 	/* Do not free the successfully attached filter. */
+ 	prepared = NULL;
+ 
+-	seccomp_assign_mode(current, seccomp_mode, flags);
++	//sifter
++	//seccomp_assign_mode(current, seccomp_mode, flags);
++	seccomp_assign_mode(current, filter_mode, flags);
++	//sifter -end
+ out:
+ 	spin_unlock_irq(&current->sighand->siglock);
+ 	if (flags & SECCOMP_FILTER_FLAG_TSYNC)
+@@ -1988,7 +2109,10 @@ static long do_seccomp(unsigned int op, unsigned int flags,
+ 			return -EINVAL;
+ 		return seccomp_set_mode_strict();
+ 	case SECCOMP_SET_MODE_FILTER:
+-		return seccomp_set_mode_filter(flags, uargs);
++		//sifter
++		//return seccomp_set_mode_filter(flags, uargs);
++		return seccomp_set_mode_filter(flags, uargs, op);
++		//sifter-end
+ 	case SECCOMP_GET_ACTION_AVAIL:
+ 		if (flags != 0)
+ 			return -EINVAL;
+@@ -1997,8 +2121,11 @@ static long do_seccomp(unsigned int op, unsigned int flags,
+ 	case SECCOMP_GET_NOTIF_SIZES:
+ 		if (flags != 0)
+ 			return -EINVAL;
+-
+ 		return seccomp_get_notif_sizes(uargs);
++	//sifter
++	case SECCOMP_SET_MODE_FILTER_EXTENDED:
++		return seccomp_set_mode_filter(flags, uargs, op);
++	//sifter -end
+ 	default:
+ 		return -EINVAL;
+ 	}
+@@ -2036,6 +2163,12 @@ long prctl_set_seccomp(unsigned long seccomp_mode, void __user *filter)
+ 		op = SECCOMP_SET_MODE_FILTER;
+ 		uargs = filter;
+ 		break;
++	//sifter
++	case SECCOMP_MODE_FILTER_EXTENDED:
++		op = SECCOMP_SET_MODE_FILTER_EXTENDED;
++		uargs = filter;
++		break;
++	//sifter -end
+ 	default:
+ 		return -EINVAL;
+ 	}
+@@ -2106,9 +2239,10 @@ long seccomp_get_filter(struct task_struct *task, unsigned long filter_off,
+ 	filter = get_nth_filter(task, filter_off);
+ 	if (IS_ERR(filter))
+ 		return PTR_ERR(filter);
+-
+-	fprog = filter->prog->orig_prog;
+-	if (!fprog) {
++//sifter
++	//fprog = filter->prog->orig_prog;
++	//if (!fprog) {
++	if (!bpf_prog_was_classic(filter->prog)) {
+ 		/* This must be a new non-cBPF filter, since we save
+ 		 * every cBPF filter's orig_prog above when
+ 		 * CONFIG_CHECKPOINT_RESTORE is enabled.
+@@ -2117,6 +2251,9 @@ long seccomp_get_filter(struct task_struct *task, unsigned long filter_off,
+ 		goto out;
+ 	}
+ 
++	fprog = filter->prog->orig_prog;
++//sifter-end
++
+ 	ret = fprog->len;
+ 	if (!data)
+ 		goto out;
+@@ -2129,6 +2266,97 @@ long seccomp_get_filter(struct task_struct *task, unsigned long filter_off,
+ 	return ret;
+ }
+ 
++//sifter
++#ifdef CONFIG_SECCOMP_FILTER_EXTENDED
++static bool seccomp_is_valid_access(int off, int size,
++				    enum bpf_access_type type,
++//				    struct bpf_insn_access_aux *info)
++					enum bpf_reg_type *reg_type)
++{
++	if (type != BPF_READ)
++		return false;
++
++	if (off < 0 || off + size > sizeof(struct seccomp_data))
++		return false;
++
++	switch (off) {
++//	case bpf_ctx_range_till(struct seccomp_data, args[0], args[5]):
++	case offsetof(struct seccomp_data, args[0]) ...
++		 offsetof(struct seccomp_data, args[5]):
++		return (size == sizeof(__u64));
++//	case bpf_ctx_range(struct seccomp_data, nr):
++	case offsetof(struct seccomp_data, nr):
++		return (size == FIELD_SIZEOF(struct seccomp_data, nr));
++//	case bpf_ctx_range(struct seccomp_data, arch):
++	case offsetof(struct seccomp_data, arch):
++		return (size == FIELD_SIZEOF(struct seccomp_data, arch));
++//	case bpf_ctx_range(struct seccomp_data, instruction_pointer):
++	case offsetof(struct seccomp_data, instruction_pointer):
++		return (size == FIELD_SIZEOF(struct seccomp_data,
++					     instruction_pointer));
++	}
++
++	return false;
++}
++
++static const struct bpf_func_proto *
++seccomp_func_proto(enum bpf_func_id func_id)
++{
++	switch (func_id) {
++	case BPF_FUNC_map_lookup_elem:
++		return &bpf_map_lookup_elem_proto;
++	case BPF_FUNC_map_update_elem:
++		return &bpf_map_update_elem_proto;
++	case BPF_FUNC_map_delete_elem:
++		return &bpf_map_delete_elem_proto;
++	case BPF_FUNC_get_current_uid_gid:
++		return &bpf_get_current_uid_gid_proto;
++	case BPF_FUNC_get_current_pid_tgid:
++		return &bpf_get_current_pid_tgid_proto;
++	case BPF_FUNC_probe_read_sleepable:
++		return &bpf_probe_read_sleepable_proto;
++	case BPF_FUNC_check_fd:
++		return &bpf_check_fd_proto;
++	case BPF_FUNC_spin_lock:
++		return &bpf_spin_lock_proto;
++	case BPF_FUNC_spin_unlock:
++		return &bpf_spin_unlock_proto;
++	case BPF_FUNC_lock_fd:
++		return &bpf_lock_fd_proto;
++	case BPF_FUNC_unlock_fd:
++		return &bpf_unlock_fd_proto;
++	case BPF_FUNC_waitif_fd_locked:
++		return &bpf_waitif_fd_locked_proto;
++	case BPF_FUNC_trace_printk:
++//		if (capable(CAP_SYS_ADMIN))
++			return bpf_get_trace_printk_proto();
++	default:
++		return NULL;
++	}
++}
++
++//const struct bpf_prog_ops seccomp_prog_ops = {
++//};
++
++const struct bpf_verifier_ops seccomp_verifier_ops = {
++	.get_func_proto		= seccomp_func_proto,
++	.is_valid_access	= seccomp_is_valid_access,
++};
++static struct bpf_prog_type_list seccomp_filter_type __read_mostly = {
++	.ops	= &seccomp_verifier_ops,
++	.type	= BPF_PROG_TYPE_SECCOMP,
++};
++
++static int __init register_seccomp_filter_ops(void)
++{
++	bpf_register_prog_type(&seccomp_filter_type);
++
++	return 0;
++}
++late_initcall(register_seccomp_filter_ops);
++#endif /* CONFIG_SECCOMP_FILTER_EXTENDED */
++//sifter -end
++
+ long seccomp_get_metadata(struct task_struct *task,
+ 			  unsigned long size, void __user *data)
+ {
+@@ -2407,6 +2635,39 @@ device_initcall(seccomp_sysctl_init)
+ 
+ #endif /* CONFIG_SYSCTL */
+ 
++unsigned long seccomp_copy_from_user(void *to, const void *from, unsigned long n)
++{
++	struct rb_node *node = current->seccomp.cache_root.rb_node;
++
++	while (node) {
++		struct seccomp_cache *cache = container_of(node, struct seccomp_cache, node);
++		const void *uptr = cache->uptr;
++
++		if ((u64)uptr < (u64)from) {
++			node = node->rb_left;
++		} else if ((u64)uptr > (u64)from) {
++			node = node->rb_right;
++		} else {
++			if (!cache->valid)
++				return 0;
++
++			if (cache->size >= n) {
++				memcpy(to, cache->data, n);
++				return n;
++			} else if (seccomp_copy_from_user(((char *)(to) + cache->size),
++							  ((char *)(from) + cache->size),
++							  n - cache->size) == n - cache->size) {
++				return n;
++			} else {
++				return 0;
++			}
++		}
++	}
++	return 0;
++}
++EXPORT_SYMBOL(seccomp_copy_from_user);
++
++
+ #ifdef CONFIG_SECCOMP_CACHE_DEBUG
+ /* Currently CONFIG_SECCOMP_CACHE_DEBUG implies SECCOMP_ARCH_NATIVE */
+ static void proc_pid_seccomp_cache_arch(struct seq_file *m, const char *name,
+diff --git a/kernel/trace/bpf_trace.c b/kernel/trace/bpf_trace.c
+index cc98e523af42..d5792bed2294 100644
+--- a/kernel/trace/bpf_trace.c
++++ b/kernel/trace/bpf_trace.c
+@@ -33,6 +33,14 @@
+ #include "trace_probe.h"
+ #include "trace.h"
+ 
++//sifter
++#include <linux/file.h>
++#include <linux/fdtable.h>
++#include <linux/namei.h>
++#include <linux/sched.h>
++#include <linux/mutex.h>
++#include <linux/rbtree.h>
++//sifter -end
+ #define CREATE_TRACE_POINTS
+ #include "bpf_trace.h"
+ 
+@@ -142,6 +150,353 @@ unsigned int trace_call_bpf(struct trace_event_call *call, void *ctx)
+ 	return ret;
+ }
+ 
++//sifter
++BPF_CALL_1(bpf_lock_fd, u32, fd)
++{
++	struct file *file;
++	struct rb_node **new = NULL;
++	struct rb_node *parent = NULL;
++	struct seccomp_fd_lock *lock = NULL;
++	unsigned long flags;
++
++	if (!current->seccomp.fd_lock_tree.rb_node) {
++		printk("bpf_lock_fd 0\n");
++	}
++
++	rcu_read_lock();
++	spin_lock_irqsave(&current->files->file_lock, flags);
++        file = files_lookup_fd_locked(current->files, fd);
++	spin_unlock_irqrestore(&current->files->file_lock, flags);
++	rcu_read_unlock();
++
++	//printk("bpf_lock_fd 2\n");
++	if (!file) {
++		printk("bpf_lock_fd 2 fail\n");
++		return 0;
++	}
++
++	//printk("bpf_lock_fd 3\n");
++	if (mutex_lock_interruptible(&current->seccomp.fd_lock_mutex)) {
++		return -EINTR;
++	}
++	new = &(current->seccomp.fd_lock_tree.rb_node);
++	while (*new) {
++		struct seccomp_fd_lock *fd_lock = container_of(*new, struct seccomp_fd_lock, node);
++
++		parent = *new;
++		if (file < fd_lock->file) {
++			new = &((*new)->rb_left);
++		} else if (file > fd_lock->file) {
++			new = &((*new)->rb_right);
++		} else {
++			//printk("bpf_lock_fd 4a\n");
++			lock = fd_lock;
++			if (mutex_lock_interruptible(&(lock->mutex))) {
++				return -EINTR;
++			}
++			//printk("bpf_lock_fd 4b\n");
++			break;
++		}
++	}
++
++	if (!lock) {
++		lock = (struct seccomp_fd_lock *)kmalloc(sizeof(struct seccomp_fd_lock), GFP_KERNEL);
++		if (!lock) {
++			mutex_unlock(&current->seccomp.fd_lock_mutex);
++			printk("bpf_lock_fd 3 fail\n");
++			return -ENOMEM;
++		}
++
++		lock->file = file;
++		atomic_set(&lock->outstanding, 0);
++		mutex_init(&(lock->mutex));
++		//printk("bpf_lock_fd 3a\n");
++		if (mutex_lock_interruptible(&(lock->mutex))) {
++			return -EINTR;
++		}
++		//printk("bpf_lock_fd 3b\n");
++
++		rb_link_node(&lock->node, parent, new);
++		rb_insert_color(&lock->node, &(current->seccomp.fd_lock_tree));
++	}
++	mutex_unlock(&current->seccomp.fd_lock_mutex);
++	//printk("bpf_lock_fd 4c\n");
++	while (atomic_read(&lock->outstanding) != 0) {};
++	//printk("bpf_lock_fd 5\n");
++	return 1;
++}
++
++const struct bpf_func_proto bpf_lock_fd_proto = {
++	.func		= bpf_lock_fd,
++	.gpl_only	= true,
++	.ret_type	= RET_INTEGER,
++	.arg1_type	= ARG_ANYTHING,
++};
++
++BPF_CALL_1(bpf_unlock_fd, u32, fd)
++{
++	struct file *file;
++	struct rb_node **new = NULL;
++	struct rb_node *parent = NULL;
++	unsigned long flags;
++
++	if (!current->seccomp.fd_lock_tree.rb_node) {
++		printk("bpf_unlock_fd 0\n");
++	}
++
++	rcu_read_lock();
++	spin_lock_irqsave(&current->files->file_lock, flags);
++        file = files_lookup_fd_locked(current->files, fd);
++        spin_unlock_irqrestore(&current->files->file_lock, flags);
++	rcu_read_unlock();
++
++	//printk("bpf_unlock_fd 2\n");
++	if (!file) {
++		printk("bpf_unlock_fd 2 fail\n");
++		return 1;
++	}
++
++	//printk("bpf_unlock_fd 3\n");
++	if (mutex_lock_interruptible(&current->seccomp.fd_lock_mutex)) {
++		return -EINTR;
++	}
++	new = &(current->seccomp.fd_lock_tree.rb_node);
++	while (*new) {
++		struct seccomp_fd_lock *fd_lock = container_of(*new, struct seccomp_fd_lock, node);
++
++		parent = *new;
++		if (file < fd_lock->file) {
++			new = &((*new)->rb_left);
++		} else if (file > fd_lock->file) {
++			new = &((*new)->rb_right);
++		} else {
++			//printk("bpf_unlock_fd 4a\n");
++			mutex_unlock(&current->seccomp.fd_lock_mutex);
++			current->seccomp_fd_lock_state = SECCOMP_FD_LOCK_UNLOCK;
++			current->seccomp_fd_lock = fd_lock;
++			//printk("bpf_unlock_fd 4b\n");
++			return 0;
++		}
++	}
++	mutex_unlock(&current->seccomp.fd_lock_mutex);
++
++	//printk("bpf_unlock_fd 4 fail\n");
++	return 1;
++}
++
++const struct bpf_func_proto bpf_unlock_fd_proto = {
++	.func		= bpf_unlock_fd,
++	.gpl_only	= true,
++	.ret_type	= RET_INTEGER,
++	.arg1_type	= ARG_ANYTHING,
++};
++
++BPF_CALL_1(bpf_waitif_fd_locked, u32, fd)
++{
++	struct file *file;
++	struct rb_node **new = NULL;
++	struct rb_node *parent = NULL;
++	struct seccomp_fd_lock *lock = NULL;
++	unsigned long flags;
++
++	if (!current->seccomp.fd_lock_tree.rb_node) {
++		printk("bpf_waitif_fd_locked 0\n");
++	}
++
++	rcu_read_lock();
++	spin_lock_irqsave(&current->files->file_lock, flags);
++        file = files_lookup_fd_locked(current->files, fd);
++        spin_unlock_irqrestore(&current->files->file_lock, flags);
++	rcu_read_unlock();
++
++	//printk("bpf_waitif_fd_locked 2\n");
++	if (!file) {
++		printk("bpf_waitif_fd_locked 2 fail\n");
++		return 1;
++	}
++
++	if (mutex_lock_interruptible(&current->seccomp.fd_lock_mutex)) {
++		return -EINTR;
++	}
++	new = &(current->seccomp.fd_lock_tree.rb_node);
++	//printk("bpf_waitif_fd_locked 3\n");
++	while (*new) {
++		struct seccomp_fd_lock *fd_lock = container_of(*new, struct seccomp_fd_lock, node);
++
++		parent = *new;
++		if (file < fd_lock->file) {
++			new = &((*new)->rb_left);
++		} else if (file > fd_lock->file) {
++			new = &((*new)->rb_right);
++		} else {
++			//printk("bpf_waitif_fd_locked 4a\n");
++			lock = fd_lock;
++			break;
++		}
++	}
++
++	if (!lock) {
++		lock = (struct seccomp_fd_lock *)kmalloc(sizeof(struct seccomp_fd_lock), GFP_KERNEL);
++		if (!lock) {
++			printk("bpf_waitif_fd_locked 3 fail\n");
++			return -ENOMEM;
++		}
++
++		lock->file = file;
++		atomic_set(&lock->outstanding, 0);
++		mutex_init(&(lock->mutex));
++
++		rb_link_node(&lock->node, parent, new);
++		rb_insert_color(&lock->node, &(current->seccomp.fd_lock_tree));
++	}
++	mutex_unlock(&current->seccomp.fd_lock_mutex);
++	//printk("bpf_waitif_fd_locked 4c\n");
++
++	if (mutex_lock_interruptible(&(lock->mutex))) {
++		return -EINTR;
++	}
++	atomic_inc(&lock->outstanding);
++	current->seccomp_fd_lock_state = SECCOMP_FD_LOCK_OUTSTANDING;
++	current->seccomp_fd_lock = lock;
++	mutex_unlock(&(lock->mutex));
++	//printk("bpf_waitif_fd_locked 5\n");
++	return 0;
++}
++
++const struct bpf_func_proto bpf_waitif_fd_locked_proto = {
++	.func		= bpf_waitif_fd_locked,
++	.gpl_only	= true,
++	.ret_type	= RET_INTEGER,
++	.arg1_type	= ARG_ANYTHING,
++};
++//sifter-end
++
++
++//sifter
++BPF_CALL_2(bpf_check_fd,char *, path, u32, fd)
++{
++	int ret=0;
++	
++	struct file *file;
++	struct path c_path;
++	unsigned long flags;
++	ret = kern_path(path, LOOKUP_FOLLOW, &c_path);
++	if (ret)
++		return 0;
++
++
++	rcu_read_lock();
++	spin_lock_irqsave(&current->files->file_lock, flags);
++	file = files_lookup_fd_locked(current->files, fd);
++	
++	if (file && file->f_path.dentry) {
++		ret = (d_backing_inode(c_path.dentry) == d_backing_inode(file->f_path.dentry))? 1 : 0;
++	} else {
++		ret = 0;
++	}
++
++	spin_unlock_irqrestore(&current->files->file_lock, flags);
++	rcu_read_unlock(); 
++	path_put(&c_path);
++	
++	return ret;
++}
++
++const struct bpf_func_proto bpf_check_fd_proto = {
++	.func		= bpf_check_fd,
++	.gpl_only	= true,
++	.ret_type	= RET_INTEGER,
++	.arg1_type	= ARG_PTR_TO_STACK,
++	.arg2_type	= ARG_ANYTHING,
++};
++
++BPF_CALL_3(bpf_probe_read_sleepable, void *, dst, u32, size, const void *, unsafe_ptr)
++{
++	/*
++	int ret=-EFAULT;
++
++	ret = copy_from_user(dst, unsafe_ptr, size);
++	if (unlikely(ret != 0)) {
++		memset(dst, 0, size);
++		return -EFAULT;
++	}
++
++	return 0;
++	*/
++	int ret = -EFAULT;
++	struct rb_node **new;
++	struct rb_node *parent = NULL;
++	struct seccomp_cache *new_cache = NULL;
++
++	ret = copy_from_user(dst, unsafe_ptr, size);
++	if (unlikely(ret < 0)) {
++		printk("%d copy %p %u error\n", current->pid, unsafe_ptr, size);
++		memset(dst, 0, size);
++		goto out;
++	}
++
++	if (current->seccomp.mode != SECCOMP_MODE_FILTER)
++		goto out;
++
++	new = &(current->seccomp.cache_root.rb_node);
++	while (*new) {
++		struct seccomp_cache *this = container_of(*new, struct seccomp_cache, node);
++		const void * uptr = this->uptr;
++		void *new_cache_data = NULL;
++
++		parent = *new;
++		if ((u64)uptr < (u64)unsafe_ptr) {
++				new = &((*new)->rb_left);
++		} else if ((u64)uptr > (u64)unsafe_ptr) {
++				new = &((*new)->rb_right);
++		} else {
++			if (size != this->size) {
++				new_cache_data = krealloc(this->data, size, GFP_KERNEL);
++				if (!new_cache_data)
++					return -ENOMEM;
++				this->data = new_cache_data;
++			}
++			memcpy(this->data, dst, size);
++			this->uptr = unsafe_ptr;
++			this->size = size;
++			this->valid = 1;
++
++			return ret;
++		}
++	}
++
++	new_cache = (struct seccomp_cache *)kmalloc(sizeof(struct seccomp_cache), GFP_KERNEL);
++	if (new_cache == NULL) {
++		return -ENOMEM;
++	}
++
++	new_cache->data = kmalloc(size, GFP_KERNEL);
++	if (new_cache->data == NULL) {
++		kfree(new_cache);
++		return -ENOMEM;
++	}
++
++	new_cache->uptr = unsafe_ptr;
++	new_cache->size = size;
++	new_cache->valid = 1;
++	memcpy(new_cache->data, dst, size);
++
++	rb_link_node(&new_cache->node, parent, new);
++	rb_insert_color(&new_cache->node, &current->seccomp.cache_root);
++out:
++	return ret;
++}
++
++const struct bpf_func_proto bpf_probe_read_sleepable_proto = {
++	.func		= bpf_probe_read_sleepable,
++	.gpl_only	= true,
++	.ret_type	= RET_INTEGER,
++	.arg1_type	= ARG_PTR_TO_UNINIT_MEM,
++	.arg2_type	= ARG_CONST_SIZE,
++	.arg3_type	= ARG_ANYTHING,
++};
++//sifter -end
++
+ #ifdef CONFIG_BPF_KPROBE_OVERRIDE
+ BPF_CALL_2(bpf_override_return, struct pt_regs *, regs, unsigned long, rc)
+ {
+@@ -1463,6 +1818,12 @@ bpf_tracing_func_proto(enum bpf_func_id func_id, const struct bpf_prog *prog)
+ 	case BPF_FUNC_probe_read_kernel_str:
+ 		return security_locked_down(LOCKDOWN_BPF_READ_KERNEL) < 0 ?
+ 		       NULL : &bpf_probe_read_kernel_str_proto;
++	//sifter
++	case BPF_FUNC_probe_read_sleepable:
++		return &bpf_probe_read_sleepable_proto;
++	case BPF_FUNC_check_fd:
++		return &bpf_check_fd_proto;
++	//sifter -end
+ #ifdef CONFIG_ARCH_HAS_NON_OVERLAPPING_ADDRESS_SPACE
+ 	case BPF_FUNC_probe_read:
+ 		return security_locked_down(LOCKDOWN_BPF_READ_KERNEL) < 0 ?
