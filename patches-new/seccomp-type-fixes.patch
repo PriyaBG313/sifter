@@ -26,10 +26,21 @@ index 172dfefc099f..84fe42e650a2 100644
  #include "disasm.h"
  
 diff --git a/kernel/seccomp.c b/kernel/seccomp.c
-index c4c680802952..b572883d6cfe 100644
+index c4c680802952..9298a251907f 100644
 --- a/kernel/seccomp.c
 +++ b/kernel/seccomp.c
-@@ -2266,12 +2266,50 @@ long seccomp_get_filter(struct task_struct *task, unsigned long filter_off,
+@@ -58,6 +58,10 @@
+  */
+ #define SECCOMP_IOCTL_NOTIF_ID_VALID_WRONG_DIR	SECCOMP_IOR(2, __u64)
+ 
++//sifter
++#define FIELD_SIZEOF(t, f) (sizeof(((t*)0)->f))
++//sifter -end
++
+ enum notify_state {
+ 	SECCOMP_NOTIFY_INIT,
+ 	SECCOMP_NOTIFY_SENT,
+@@ -2266,12 +2270,50 @@ long seccomp_get_filter(struct task_struct *task, unsigned long filter_off,
  	return ret;
  }
  
@@ -82,24 +93,7 @@ index c4c680802952..b572883d6cfe 100644
  {
  	if (type != BPF_READ)
  		return false;
-@@ -2286,13 +2324,13 @@ static bool seccomp_is_valid_access(int off, int size,
- 		return (size == sizeof(__u64));
- //	case bpf_ctx_range(struct seccomp_data, nr):
- 	case offsetof(struct seccomp_data, nr):
--		return (size == FIELD_SIZEOF(struct seccomp_data, nr));
-+		return (size == BPF_FIELD_SIZEOF(struct seccomp_data, nr));
- //	case bpf_ctx_range(struct seccomp_data, arch):
- 	case offsetof(struct seccomp_data, arch):
--		return (size == FIELD_SIZEOF(struct seccomp_data, arch));
-+		return (size == BPF_FIELD_SIZEOF(struct seccomp_data, arch));
- //	case bpf_ctx_range(struct seccomp_data, instruction_pointer):
- 	case offsetof(struct seccomp_data, instruction_pointer):
--		return (size == FIELD_SIZEOF(struct seccomp_data,
-+		return (size == BPF_FIELD_SIZEOF(struct seccomp_data,
- 					     instruction_pointer));
- 	}
- 
-@@ -2300,7 +2338,7 @@ static bool seccomp_is_valid_access(int off, int size,
+@@ -2300,7 +2342,7 @@ static bool seccomp_is_valid_access(int off, int size,
  }
  
  static const struct bpf_func_proto *
@@ -108,7 +102,7 @@ index c4c680802952..b572883d6cfe 100644
  {
  	switch (func_id) {
  	case BPF_FUNC_map_lookup_elem:
-@@ -2338,14 +2376,14 @@ seccomp_func_proto(enum bpf_func_id func_id)
+@@ -2338,14 +2380,14 @@ seccomp_func_proto(enum bpf_func_id func_id)
  }
  
  const struct bpf_prog_ops seccomp_prog_ops = {
@@ -125,7 +119,7 @@ index c4c680802952..b572883d6cfe 100644
  static struct bpf_prog_type_list seccomp_filter_type __read_mostly = {
  	.ops	= &seccomp_verifier_ops,
  	.type	= BPF_PROG_TYPE_SECCOMP,
-@@ -2357,45 +2395,13 @@ static int __init register_seccomp_filter_ops(void)
+@@ -2357,45 +2399,13 @@ static int __init register_seccomp_filter_ops(void)
  
  	return 0;
  }
@@ -151,14 +145,14 @@ index c4c680802952..b572883d6cfe 100644
 -
 -	if (size < sizeof(kmd.filter_off))
 -		return -EINVAL;
- 
+-
 -	if (copy_from_user(&kmd.filter_off, data, sizeof(kmd.filter_off)))
 -		return -EFAULT;
 -
 -	filter = get_nth_filter(task, kmd.filter_off);
 -	if (IS_ERR(filter))
 -		return PTR_ERR(filter);
--
+ 
 -	if (filter->log)
 -		kmd.flags |= SECCOMP_FILTER_FLAG_LOG;
 -
