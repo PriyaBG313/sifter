@@ -1,0 +1,517 @@
+//
+// Copyright (C) 2019 The Android Open Source Project
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+
+package {
+    // http://go/android-license-faq
+    // A large-scale-change added 'default_applicable_licenses' to import
+    // the below license kinds from "system_bpf_license":
+    //   SPDX-license-identifier-Apache-2.0
+    default_applicable_licenses: ["system_bpf_license"],
+}
+
+cc_library_headers {
+    name: "bpf_prog_headers",
+    export_include_dirs: ["include"],
+}
+
+libbpf_prog {
+    name: "bpfRingbufProg.bpf",
+    srcs: ["bpfRingbufProg.c"],
+    header_libs: [
+        "android_bpf_defs",
+    ],
+}
+
+libbpf_prog {
+        name: "testProg.bpf",
+        srcs: ["testProg.c"],
+        header_libs: [
+                "bpf_prog_headers",
+                "libcutils_headers",
+                "android_bpf_defs",
+        ],
+        cflags: [
+                "-Isystem/bpf/include/bpf",
+                "-Iexternal/libbpf/include/uapi/linux",
+        ]
+
+}
+
+
+libbpf_prog {
+        name: "bifrostTracer.bpf",
+        srcs: ["bifrostTracer.c"],
+        header_libs: [
+                "bpf_prog_headers",
+                "libcutils_headers",
+                "android_bpf_defs",
+        ],
+        cflags: [
+                "-Isystem/bpf/include/bpf",
+                "-Iexternal/libbpf/include/uapi/linux",
+        ]
+
+}
+
+libbpf_prog {
+        name: "bifrostFilterSeq.bpf",
+        srcs: ["bifrostFilterSeq.c"],
+        header_libs: [
+                "bpf_prog_headers",
+                "libcutils_headers",
+                "android_bpf_defs",
+        ],
+        cflags: [
+                "-Isystem/bpf/include/bpf",
+                "-Iexternal/libbpf/include/uapi/linux",
+        ]
+
+}
+
+libbpf_prog {
+    name: "bifrostTracerEntry.bpf",
+    srcs: ["bifrostTracerEntry.c"],
+    header_libs: [
+        "bpf_prog_headers",
+        "libcutils_headers",
+        "android_bpf_defs",
+    ],
+    cflags: [
+        "-Isystem/bpf/include/bpf",
+        "-Iexternal/libbpf/include/uapi/linux",
+    ],
+}
+
+libbpf_prog {
+    name: "bifrostTracerExit.bpf",
+    srcs: ["bifrostTracerExit.c"],
+    header_libs: [
+        "bpf_prog_headers",
+        "libcutils_headers",
+        "android_bpf_defs",
+    ],
+    cflags: [
+        "-Isystem/bpf/include/bpf",
+        "-Iexternal/libbpf/include/uapi/linux",
+    ],
+}
+
+libbpf_prog {
+    name: "fstat.bpf",
+    srcs: ["fstat.c"],
+    header_libs: [
+        "bpf_prog_headers",
+        "libcutils_headers",
+        "android_bpf_defs",
+    ],
+    cflags: [
+        "-Isystem/bpf/include/bpf",
+        "-Iexternal/libbpf/include/uapi/linux",
+    ],
+}
+
+libbpf_prog {
+    name: "ioctlKBASEIOCTLCONTEXTPRIORITYCHECK.bpf",
+    srcs: ["ioctlKBASEIOCTLCONTEXTPRIORITYCHECK.c"],
+    header_libs: [
+        "bpf_prog_headers",
+        "libcutils_headers",
+        "android_bpf_defs",
+    ],
+    cflags: [
+        "-Isystem/bpf/include/bpf",
+        "-Iexternal/libbpf/include/uapi/linux",
+    ],
+}
+
+libbpf_prog {
+    name: "ioctlKBASEIOCTLCSEVENTSIGNAL.bpf",
+    srcs: ["ioctlKBASEIOCTLCSEVENTSIGNAL.c"],
+    header_libs: [
+        "bpf_prog_headers",
+        "libcutils_headers",
+        "android_bpf_defs",
+    ],
+    cflags: [
+        "-Isystem/bpf/include/bpf",
+        "-Iexternal/libbpf/include/uapi/linux",
+    ],
+}
+
+libbpf_prog {
+    name: "ioctlKBASEIOCTLCSGETGLBIFACE.bpf",
+    srcs: ["ioctlKBASEIOCTLCSGETGLBIFACE.c"],
+    header_libs: [
+        "bpf_prog_headers",
+        "libcutils_headers",
+        "android_bpf_defs",
+    ],
+    cflags: [
+        "-Isystem/bpf/include/bpf",
+        "-Iexternal/libbpf/include/uapi/linux",
+    ],
+}
+
+libbpf_prog {
+    name: "ioctlKBASEIOCTLCSQUEUEBIND.bpf",
+    srcs: ["ioctlKBASEIOCTLCSQUEUEBIND.c"],
+    header_libs: [
+        "bpf_prog_headers",
+        "libcutils_headers",
+        "android_bpf_defs",
+    ],
+    cflags: [
+        "-Isystem/bpf/include/bpf",
+        "-Iexternal/libbpf/include/uapi/linux",
+    ],
+}
+
+libbpf_prog {
+    name: "ioctlKBASEIOCTLCSQUEUEGROUPTERMINATE.bpf",
+    srcs: ["ioctlKBASEIOCTLCSQUEUEGROUPTERMINATE.c"],
+    header_libs: [
+        "bpf_prog_headers",
+        "libcutils_headers",
+        "android_bpf_defs",
+    ],
+    cflags: [
+        "-Isystem/bpf/include/bpf",
+        "-Iexternal/libbpf/include/uapi/linux",
+    ],
+}
+
+libbpf_prog {
+    name: "ioctlKBASEIOCTLCSQUEUEKICK.bpf",
+    srcs: ["ioctlKBASEIOCTLCSQUEUEKICK.c"],
+    header_libs: [
+        "bpf_prog_headers",
+        "libcutils_headers",
+        "android_bpf_defs",
+    ],
+    cflags: [
+        "-Isystem/bpf/include/bpf",
+        "-Iexternal/libbpf/include/uapi/linux",
+    ],
+}
+
+libbpf_prog {
+    name: "ioctlKBASEIOCTLCSQUEUEREGISTER.bpf",
+    srcs: ["ioctlKBASEIOCTLCSQUEUEREGISTER.c"],
+    header_libs: [
+        "bpf_prog_headers",
+        "libcutils_headers",
+        "android_bpf_defs",
+    ],
+    cflags: [
+        "-Isystem/bpf/include/bpf",
+        "-Iexternal/libbpf/include/uapi/linux",
+    ],
+}
+
+libbpf_prog {
+    name: "ioctlKBASEIOCTLCSQUEUETERMINATE.bpf",
+    srcs: ["ioctlKBASEIOCTLCSQUEUETERMINATE.c"],
+    header_libs: [
+        "bpf_prog_headers",
+        "libcutils_headers",
+        "android_bpf_defs",
+    ],
+    cflags: [
+        "-Isystem/bpf/include/bpf",
+        "-Iexternal/libbpf/include/uapi/linux",
+    ],
+}
+
+libbpf_prog {
+    name: "ioctlKBASEIOCTLCSTILERHEAPINIT.bpf",
+    srcs: ["ioctlKBASEIOCTLCSTILERHEAPINIT.c"],
+    header_libs: [
+        "bpf_prog_headers",
+        "libcutils_headers",
+        "android_bpf_defs",
+    ],
+    cflags: [
+        "-Isystem/bpf/include/bpf",
+        "-Iexternal/libbpf/include/uapi/linux",
+    ],
+}
+
+libbpf_prog {
+    name: "ioctlKBASEIOCTLCSTILERHEAPTERM.bpf",
+    srcs: ["ioctlKBASEIOCTLCSTILERHEAPTERM.c"],
+    header_libs: [
+        "bpf_prog_headers",
+        "libcutils_headers",
+        "android_bpf_defs",
+    ],
+    cflags: [
+        "-Isystem/bpf/include/bpf",
+        "-Iexternal/libbpf/include/uapi/linux",
+    ],
+}
+
+libbpf_prog {
+    name: "ioctlKBASEIOCTLFENCEVALIDATE.bpf",
+    srcs: ["ioctlKBASEIOCTLFENCEVALIDATE.c"],
+    header_libs: [
+        "bpf_prog_headers",
+        "libcutils_headers",
+        "android_bpf_defs",
+    ],
+    cflags: [
+        "-Isystem/bpf/include/bpf",
+        "-Iexternal/libbpf/include/uapi/linux",
+    ],
+}
+
+libbpf_prog {
+    name: "ioctlKBASEIOCTLGETCONTEXTID.bpf",
+    srcs: ["ioctlKBASEIOCTLGETCONTEXTID.c"],
+    header_libs: [
+        "bpf_prog_headers",
+        "libcutils_headers",
+        "android_bpf_defs",
+    ],
+    cflags: [
+        "-Isystem/bpf/include/bpf",
+        "-Iexternal/libbpf/include/uapi/linux",
+    ],
+}
+
+libbpf_prog {
+    name: "ioctlKBASEIOCTLKCPUQUEUECREATE.bpf",
+    srcs: ["ioctlKBASEIOCTLKCPUQUEUECREATE.c"],
+    header_libs: [
+        "bpf_prog_headers",
+        "libcutils_headers",
+        "android_bpf_defs",
+    ],
+    cflags: [
+        "-Isystem/bpf/include/bpf",
+        "-Iexternal/libbpf/include/uapi/linux",
+    ],
+}
+
+libbpf_prog {
+    name: "ioctlKBASEIOCTLKCPUQUEUEDELETE.bpf",
+    srcs: ["ioctlKBASEIOCTLKCPUQUEUEDELETE.c"],
+    header_libs: [
+        "bpf_prog_headers",
+        "libcutils_headers",
+        "android_bpf_defs",
+    ],
+    cflags: [
+        "-Isystem/bpf/include/bpf",
+        "-Iexternal/libbpf/include/uapi/linux",
+    ],
+}
+
+libbpf_prog {
+    name: "ioctlKBASEIOCTLKCPUQUEUEENQUEUE.bpf",
+    srcs: ["ioctlKBASEIOCTLKCPUQUEUEENQUEUE.c"],
+    header_libs: [
+        "bpf_prog_headers",
+        "libcutils_headers",
+        "android_bpf_defs",
+    ],
+    cflags: [
+        "-Isystem/bpf/include/bpf",
+        "-Iexternal/libbpf/include/uapi/linux",
+    ],
+}
+
+libbpf_prog {
+    name: "ioctlKBASEIOCTLMEMALLOCEX.bpf",
+    srcs: ["ioctlKBASEIOCTLMEMALLOCEX.c"],
+    header_libs: [
+        "bpf_prog_headers",
+        "libcutils_headers",
+        "android_bpf_defs",
+    ],
+    cflags: [
+        "-Isystem/bpf/include/bpf",
+        "-Iexternal/libbpf/include/uapi/linux",
+    ],
+}
+
+libbpf_prog {
+    name: "ioctlKBASEIOCTLMEMCOMMIT.bpf",
+    srcs: ["ioctlKBASEIOCTLMEMCOMMIT.c"],
+    header_libs: [
+        "bpf_prog_headers",
+        "libcutils_headers",
+        "android_bpf_defs",
+    ],
+    cflags: [
+        "-Isystem/bpf/include/bpf",
+        "-Iexternal/libbpf/include/uapi/linux",
+    ],
+}
+
+libbpf_prog {
+    name: "ioctlKBASEIOCTLMEMEXECINIT.bpf",
+    srcs: ["ioctlKBASEIOCTLMEMEXECINIT.c"],
+    header_libs: [
+        "bpf_prog_headers",
+        "libcutils_headers",
+        "android_bpf_defs",
+    ],
+    cflags: [
+        "-Isystem/bpf/include/bpf",
+        "-Iexternal/libbpf/include/uapi/linux",
+    ],
+}
+
+libbpf_prog {
+    name: "ioctlKBASEIOCTLMEMFREE.bpf",
+    srcs: ["ioctlKBASEIOCTLMEMFREE.c"],
+    header_libs: [
+        "bpf_prog_headers",
+        "libcutils_headers",
+        "android_bpf_defs",
+    ],
+    cflags: [
+        "-Isystem/bpf/include/bpf",
+        "-Iexternal/libbpf/include/uapi/linux",
+    ],
+}
+
+libbpf_prog {
+    name: "ioctlKBASEIOCTLMEMIMPORT.bpf",
+    srcs: ["ioctlKBASEIOCTLMEMIMPORT.c"],
+    header_libs: [
+        "bpf_prog_headers",
+        "libcutils_headers",
+        "android_bpf_defs",
+    ],
+    cflags: [
+        "-Isystem/bpf/include/bpf",
+        "-Iexternal/libbpf/include/uapi/linux",
+    ],
+}
+
+libbpf_prog {
+    name: "ioctlKBASEIOCTLMEMJITINIT.bpf",
+    srcs: ["ioctlKBASEIOCTLMEMJITINIT.c"],
+    header_libs: [
+        "bpf_prog_headers",
+        "libcutils_headers",
+        "android_bpf_defs",
+    ],
+    cflags: [
+        "-Isystem/bpf/include/bpf",
+        "-Iexternal/libbpf/include/uapi/linux",
+    ],
+}
+
+libbpf_prog {
+    name: "ioctlKBASEIOCTLMEMQUERY.bpf",
+    srcs: ["ioctlKBASEIOCTLMEMQUERY.c"],
+    header_libs: [
+        "bpf_prog_headers",
+        "libcutils_headers",
+        "android_bpf_defs",
+    ],
+    cflags: [
+        "-Isystem/bpf/include/bpf",
+        "-Iexternal/libbpf/include/uapi/linux",
+    ],
+}
+
+libbpf_prog {
+    name: "ioctlKBASEIOCTLREADUSERPAGE.bpf",
+    srcs: ["ioctlKBASEIOCTLREADUSERPAGE.c"],
+    header_libs: [
+        "bpf_prog_headers",
+        "libcutils_headers",
+        "android_bpf_defs",
+    ],
+    cflags: [
+        "-Isystem/bpf/include/bpf",
+        "-Iexternal/libbpf/include/uapi/linux",
+    ],
+}
+
+libbpf_prog {
+    name: "ioctlKBASEIOCTLSETFLAGS.bpf",
+    srcs: ["ioctlKBASEIOCTLSETFLAGS.c"],
+    header_libs: [
+        "bpf_prog_headers",
+        "libcutils_headers",
+        "android_bpf_defs",
+    ],
+    cflags: [
+        "-Isystem/bpf/include/bpf",
+        "-Iexternal/libbpf/include/uapi/linux",
+    ],
+}
+
+libbpf_prog {
+    name: "ioctlKBASEIOCTLSTICKYRESOURCEMAP.bpf",
+    srcs: ["ioctlKBASEIOCTLSTICKYRESOURCEMAP.c"],
+    header_libs: [
+        "bpf_prog_headers",
+        "libcutils_headers",
+        "android_bpf_defs",
+    ],
+    cflags: [
+        "-Isystem/bpf/include/bpf",
+        "-Iexternal/libbpf/include/uapi/linux",
+    ],
+}
+
+libbpf_prog {
+    name: "ioctlKBASEIOCTLSTICKYRESOURCEUNMAP.bpf",
+    srcs: ["ioctlKBASEIOCTLSTICKYRESOURCEUNMAP.c"],
+    header_libs: [
+        "bpf_prog_headers",
+        "libcutils_headers",
+        "android_bpf_defs",
+    ],
+    cflags: [
+        "-Isystem/bpf/include/bpf",
+        "-Iexternal/libbpf/include/uapi/linux",
+    ],
+}
+
+libbpf_prog {
+    name: "mmapbifrost.bpf",
+    srcs: ["mmapbifrost.c"],
+    header_libs: [
+        "bpf_prog_headers",
+        "libcutils_headers",
+        "android_bpf_defs",
+    ],
+    cflags: [
+        "-Isystem/bpf/include/bpf",
+        "-Iexternal/libbpf/include/uapi/linux",
+    ],
+}
+
+libbpf_prog {
+    name: "read.bpf",
+    srcs: ["read.c"],
+    header_libs: [
+        "bpf_prog_headers",
+        "libcutils_headers",
+        "android_bpf_defs",
+    ],
+    cflags: [
+        "-Isystem/bpf/include/bpf",
+        "-Iexternal/libbpf/include/uapi/linux",
+    ],
+}
+

@@ -65,6 +65,15 @@ struct syscall_info {
     uint64_t fd;
 };
 
+struct kbase_ioctl_mem_jit_init {
+    uint64_t va_pages; //int64
+    uint8_t max_allocations; //int8
+    uint8_t trim_level; //int8
+    uint8_t group_id; //int8
+    char padding[5]; //array
+    uint64_t phys_pages; //int64
+};
+
 DEFINE_BPF_MAP_N(syscall_info_map, HASH, uint64_t, struct syscall_info, 512);
 /*
 #define bpf_printk(fmt, ...)                                   \
@@ -74,17 +83,26 @@ DEFINE_BPF_MAP_N(syscall_info_map, HASH, uint64_t, struct syscall_info, 512);
 })*/
 
 SEC("seccomp")
-int __always_inline filter_read(struct seccomp_data *ctx) {
+int __always_inline filter_ioctl_KBASE_IOCTL_MEM_JIT_INIT(struct seccomp_data *ctx) {
     int ret = SECCOMP_RET_ALLOW;
     char dev [] = "/dev/bifrost";
 
-    if (ctx->nr == 63 && bpf_check_fd(dev, ctx->args[0])) {
+    if (ctx->nr == 29 && ctx->args[1] == 0x4018800e && bpf_check_fd(dev, ctx->args[0])) {
         struct syscall_info info = {};
         info.fd = ctx->args[0];
 
-    //arg ptr[out, buffer] ptr 0xf8ffa0 8
+    //arg ptr[in, kbase_ioctl_mem_jit_init] ptr 0xf8ffa0 8
+    //arg kbase_ioctl_mem_jit_init kbase_ioctl_mem_jit_init 0xf8ffa0 24
+    	struct kbase_ioctl_mem_jit_init v64;
+    	if (bpf_probe_read_sleepable(&v64, sizeof(v64), (void *)ctx->args[2]+0) < 0)
+        	return SECCOMP_RET_ERRNO | EINVAL;
+    //arg int64 int64 0xf8ffa0 8
+    //arg int8 int8 0xf8ffa0 1
+    //arg int8 int8 0xf8ffa0 1
+    //arg int8 int8 0xf8ffa0 1
+    //arg int64 int64 0xf8ffa0 8
 
-        info.id = 31;
+        info.id = 5;
 
         if (ret == SECCOMP_RET_ALLOW) {
             uint64_t pid_tgid = bpf_get_current_pid_tgid();
@@ -92,7 +110,7 @@ int __always_inline filter_read(struct seccomp_data *ctx) {
         }
     }
     if (ret != SECCOMP_RET_ALLOW) {;
-        bpf_printk("read reject\n");
+        bpf_printk("ioctl_KBASE_IOCTL_MEM_JIT_INIT reject\n");
     }
     return ret;
 }

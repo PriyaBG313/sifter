@@ -65,26 +65,54 @@ struct syscall_info {
     uint64_t fd;
 };
 
+struct kbase_ioctl_cs_tiler_heap_init {
+    uint32_t chunk_size; //tiler_heap_chunk_sizes
+    uint32_t initial_chunks; //int32
+    uint32_t max_chunks; //int32
+    uint16_t target_in_flight; //int16
+    uint8_t group_id; //int8
+    uint8_t padding; //const
+    uint64_t buf_desc_va; //int64
+    uint64_t gpu_heap_va; //gpu_heap_va
+    uint64_t first_chunk_va; //int64
+};
+
 DEFINE_BPF_MAP_N(syscall_info_map, HASH, uint64_t, struct syscall_info, 512);
 /*
 #define bpf_printk(fmt, ...)                                   \
 ({                                                             \
     char ____fmt[] = fmt;                                      \
     bpf_trace_printk(____fmt, sizeof(____fmt), ##__VA_ARGS__); \
-})*/
+})
+*/
 
 SEC("seccomp")
-int __always_inline filter_read(struct seccomp_data *ctx) {
+int __always_inline filter_ioctl_KBASE_IOCTL_CS_TILER_HEAP_INIT(struct seccomp_data *ctx) {
     int ret = SECCOMP_RET_ALLOW;
     char dev [] = "/dev/bifrost";
 
-    if (ctx->nr == 63 && bpf_check_fd(dev, ctx->args[0])) {
+    if (ctx->nr == 29 && ctx->args[1] == 0xc0188030 && bpf_check_fd(dev, ctx->args[0])) {
         struct syscall_info info = {};
         info.fd = ctx->args[0];
 
-    //arg ptr[out, buffer] ptr 0xf8ffa0 8
+    //arg ptr[inout, kbase_ioctl_cs_tiler_heap_init] ptr 0xf8ffa0 8
+    //arg kbase_ioctl_cs_tiler_heap_init kbase_ioctl_cs_tiler_heap_init 0xf8ffa0 24
+    struct kbase_ioctl_cs_tiler_heap_init v68;
+    if (bpf_probe_read_sleepable(&v68, sizeof(v68), (void *)ctx->args[2]+0) < 0)
+        return SECCOMP_RET_ERRNO | EINVAL;
+    //arg tiler_heap_chunk_sizes tiler_heap_chunk_sizes 0xf8ffa0 4
+    if (v68.chunk_size != 0x200000) {
+        ret = SECCOMP_RET_ERRNO | EINVAL;
+    }
+    //arg int32 int32 0xf8ffa0 4
+    //arg int32 int32 0xf8ffa0 4
+    //arg int16 int16 0xf8ffa0 2
+    //arg int8 int8 0xf8ffa0 1
+    //arg const[0, const] const 0xf8ffa0 1
+    //arg int64 int64 0xf8ffa0 8
+    //arg int64 int64 0xf8ffa0 8
 
-        info.id = 31;
+        info.id = 13;
 
         if (ret == SECCOMP_RET_ALLOW) {
             uint64_t pid_tgid = bpf_get_current_pid_tgid();
@@ -92,7 +120,7 @@ int __always_inline filter_read(struct seccomp_data *ctx) {
         }
     }
     if (ret != SECCOMP_RET_ALLOW) {;
-        bpf_printk("read reject\n");
+        bpf_printk("ioctl_KBASE_IOCTL_CS_TILER_HEAP_INIT reject\n");
     }
     return ret;
 }

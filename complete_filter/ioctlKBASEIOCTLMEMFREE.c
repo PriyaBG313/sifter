@@ -65,6 +65,10 @@ struct syscall_info {
     uint64_t fd;
 };
 
+struct kbase_ioctl_mem_free {
+    uint64_t gpu_addr; //gpu_addr
+};
+
 DEFINE_BPF_MAP_N(syscall_info_map, HASH, uint64_t, struct syscall_info, 512);
 /*
 #define bpf_printk(fmt, ...)                                   \
@@ -74,17 +78,21 @@ DEFINE_BPF_MAP_N(syscall_info_map, HASH, uint64_t, struct syscall_info, 512);
 })*/
 
 SEC("seccomp")
-int __always_inline filter_read(struct seccomp_data *ctx) {
+int __always_inline filter_ioctl_KBASE_IOCTL_MEM_FREE(struct seccomp_data *ctx) {
     int ret = SECCOMP_RET_ALLOW;
     char dev [] = "/dev/bifrost";
 
-    if (ctx->nr == 63 && bpf_check_fd(dev, ctx->args[0])) {
+    if (ctx->nr == 29 && ctx->args[1] == 0x40088007 && bpf_check_fd(dev, ctx->args[0])) {
         struct syscall_info info = {};
         info.fd = ctx->args[0];
 
-    //arg ptr[out, buffer] ptr 0xf8ffa0 8
+    //arg ptr[in, kbase_ioctl_mem_free] ptr 0xf8ffa0 8
+    //arg kbase_ioctl_mem_free kbase_ioctl_mem_free 0xf8ffa0 8
+    	struct kbase_ioctl_mem_free v87;
+    	if (bpf_probe_read_sleepable(&v87, sizeof(v87), (void *)ctx->args[2]+0) < 0)
+        	return SECCOMP_RET_ERRNO | EINVAL;
 
-        info.id = 31;
+        info.id = 45;
 
         if (ret == SECCOMP_RET_ALLOW) {
             uint64_t pid_tgid = bpf_get_current_pid_tgid();
@@ -92,7 +100,7 @@ int __always_inline filter_read(struct seccomp_data *ctx) {
         }
     }
     if (ret != SECCOMP_RET_ALLOW) {;
-        bpf_printk("read reject\n");
+        bpf_printk("ioctl_KBASE_IOCTL_MEM_FREE reject\n");
     }
     return ret;
 }

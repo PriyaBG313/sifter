@@ -74,17 +74,25 @@ DEFINE_BPF_MAP_N(syscall_info_map, HASH, uint64_t, struct syscall_info, 512);
 })*/
 
 SEC("seccomp")
-int __always_inline filter_read(struct seccomp_data *ctx) {
+int __always_inline filter_mmap_bifrost(struct seccomp_data *ctx) {
     int ret = SECCOMP_RET_ALLOW;
     char dev [] = "/dev/bifrost";
 
-    if (ctx->nr == 63 && bpf_check_fd(dev, ctx->args[0])) {
+    if (ctx->nr == 222 && bpf_check_fd(dev, ctx->args[4])) {
         struct syscall_info info = {};
-        info.fd = ctx->args[0];
+        info.fd = ctx->args[4];
 
-    //arg ptr[out, buffer] ptr 0xf8ffa0 8
+    if (ctx->args[1] < 0x0 || ctx->args[1] > 0x275457073) {
+        ret = SECCOMP_RET_ERRNO | EINVAL;
+    }
 
-        info.id = 31;
+        if (ctx->args[2] == 3 && ctx->args[3] == 1) {
+            info.id = 8;
+        } else if (ctx->args[2] == 0 && ctx->args[3] == 1) {
+            info.id = 30;
+        } else if (ctx->args[2] == 1 && ctx->args[3] == 1) {
+            info.id = 47;
+        }
 
         if (ret == SECCOMP_RET_ALLOW) {
             uint64_t pid_tgid = bpf_get_current_pid_tgid();
@@ -92,7 +100,7 @@ int __always_inline filter_read(struct seccomp_data *ctx) {
         }
     }
     if (ret != SECCOMP_RET_ALLOW) {;
-        bpf_printk("read reject\n");
+        bpf_printk("mmap_bifrost reject\n");
     }
     return ret;
 }
