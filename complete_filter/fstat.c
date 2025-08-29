@@ -99,9 +99,11 @@ DEFINE_BPF_MAP_N(syscall_info_map, HASH, uint64_t, struct syscall_info, 512);
 SEC("seccomp")
 int __always_inline filter_fstat(struct seccomp_data *ctx) {
     int ret = SECCOMP_RET_ALLOW;
-    char dev [] = "/dev/bifrost";
+    (void)ctx;
+    
+    char dev [] = "/dev/mali0";
 
-    if (ctx->nr == 80 && bpf_check_fd(dev, ctx->args[0])) {
+    if (ctx->nr && bpf_check_fd(dev, ctx->args[0])) {
         struct syscall_info info = {};
         info.fd = ctx->args[0];
 
@@ -110,6 +112,7 @@ int __always_inline filter_fstat(struct seccomp_data *ctx) {
     	struct stat v58;
     	if (bpf_probe_read_sleepable(&v58, sizeof(v58), (void *)ctx->args[1]+0) < 0)
         	return SECCOMP_RET_ERRNO | EINVAL;
+	
     //arg intptr intptr 0xf8ffa0 8
     //arg intptr intptr 0xf8ffa0 8
     //arg int32 int32 0xf8ffa0 4
@@ -138,7 +141,7 @@ int __always_inline filter_fstat(struct seccomp_data *ctx) {
     }
     if (ret != SECCOMP_RET_ALLOW) {;
         bpf_printk("fstat reject\n");
-    }
+    } 
     return ret;
 }
 

@@ -76,7 +76,7 @@ DEFINE_BPF_MAP_N(syscall_info_map, HASH, uint64_t, struct syscall_info, 512);
 SEC("seccomp")
 int __always_inline filter_mmap_bifrost(struct seccomp_data *ctx) {
     int ret = SECCOMP_RET_ALLOW;
-    char dev [] = "/dev/bifrost";
+    char dev [] = "/dev/mali0";
 
     if (ctx->nr == 222 && bpf_check_fd(dev, ctx->args[4])) {
         struct syscall_info info = {};

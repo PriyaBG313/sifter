@@ -80,7 +80,7 @@ DEFINE_BPF_MAP_N(syscall_info_map, HASH, uint64_t, struct syscall_info, 512);
 SEC("seccomp")
 int __always_inline filter_ioctl_KBASE_IOCTL_MEM_FREE(struct seccomp_data *ctx) {
     int ret = SECCOMP_RET_ALLOW;
-    char dev [] = "/dev/bifrost";
+    char dev [] = "/dev/mali0";
 
     if (ctx->nr == 29 && ctx->args[1] == 0x40088007 && bpf_check_fd(dev, ctx->args[0])) {
         struct syscall_info info = {};

@@ -118,6 +118,7 @@ libbpf_prog {
         "android_bpf_defs",
     ],
     cflags: [
+	"-O2",
         "-Isystem/bpf/include/bpf",
         "-Iexternal/libbpf/include/uapi/linux",
     ],

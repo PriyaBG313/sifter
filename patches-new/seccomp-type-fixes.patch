@@ -26,7 +26,7 @@ index 172dfefc099f..84fe42e650a2 100644
  #include "disasm.h"
  
 diff --git a/kernel/seccomp.c b/kernel/seccomp.c
-index c4c680802952..9298a251907f 100644
+index c4c680802952..bcafbb5fb01e 100644
 --- a/kernel/seccomp.c
 +++ b/kernel/seccomp.c
 @@ -58,6 +58,10 @@
@@ -40,7 +40,30 @@ index c4c680802952..9298a251907f 100644
  enum notify_state {
  	SECCOMP_NOTIFY_INIT,
  	SECCOMP_NOTIFY_SENT,
-@@ -2266,12 +2270,50 @@ long seccomp_get_filter(struct task_struct *task, unsigned long filter_off,
+@@ -757,7 +761,8 @@ seccomp_prepare_extended_filter(const char __user *user_fd)
+ 	//atomic_set(&sfilter->usage, 1);
+ 	refcount_set(&sfilter->refs, 1);
+ 	refcount_set(&sfilter->users, 1);
+-
++	init_waitqueue_head(&sfilter->wqh);	
++	
+ 	return sfilter;
+ }
+ #else
+@@ -964,7 +969,11 @@ static long seccomp_attach_filter(unsigned int flags,
+ 	 * task reference.
+ 	 */
+ 	filter->prev = current->seccomp.filter;
+-	seccomp_cache_prepare(filter);
++	
++	if (bpf_prog_was_classic(filter->prog)) {
++		seccomp_cache_prepare(filter);
++	}
++
+ 	current->seccomp.filter = filter;
+ 	atomic_inc(&current->seccomp.filter_count);
+ 
+@@ -2266,12 +2275,50 @@ long seccomp_get_filter(struct task_struct *task, unsigned long filter_off,
  	return ret;
  }
  
@@ -93,7 +116,7 @@ index c4c680802952..9298a251907f 100644
  {
  	if (type != BPF_READ)
  		return false;
-@@ -2300,7 +2342,7 @@ static bool seccomp_is_valid_access(int off, int size,
+@@ -2300,7 +2347,7 @@ static bool seccomp_is_valid_access(int off, int size,
  }
  
  static const struct bpf_func_proto *
@@ -102,7 +125,7 @@ index c4c680802952..9298a251907f 100644
  {
  	switch (func_id) {
  	case BPF_FUNC_map_lookup_elem:
-@@ -2338,14 +2380,14 @@ seccomp_func_proto(enum bpf_func_id func_id)
+@@ -2338,14 +2385,14 @@ seccomp_func_proto(enum bpf_func_id func_id)
  }
  
  const struct bpf_prog_ops seccomp_prog_ops = {
@@ -119,7 +142,7 @@ index c4c680802952..9298a251907f 100644
  static struct bpf_prog_type_list seccomp_filter_type __read_mostly = {
  	.ops	= &seccomp_verifier_ops,
  	.type	= BPF_PROG_TYPE_SECCOMP,
-@@ -2357,45 +2399,13 @@ static int __init register_seccomp_filter_ops(void)
+@@ -2357,45 +2404,13 @@ static int __init register_seccomp_filter_ops(void)
  
  	return 0;
  }
@@ -140,7 +163,7 @@ index c4c680802952..9298a251907f 100644
 -	    current->seccomp.mode != SECCOMP_MODE_DISABLED) {
 -		return -EACCES;
 -	}
--
+ 
 -	size = min_t(unsigned long, size, sizeof(kmd));
 -
 -	if (size < sizeof(kmd.filter_off))
@@ -152,7 +175,7 @@ index c4c680802952..9298a251907f 100644
 -	filter = get_nth_filter(task, kmd.filter_off);
 -	if (IS_ERR(filter))
 -		return PTR_ERR(filter);
- 
+-
 -	if (filter->log)
 -		kmd.flags |= SECCOMP_FILTER_FLAG_LOG;
 -
