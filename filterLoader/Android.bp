@@ -1,0 +1,22 @@
+cc_binary {
+    name: "filterLoader",
+    srcs: [
+        "filterLoader.cpp"
+    ],
+    defaults: ["libbpf_defaults"],
+    shared_libs: [
+	"liblog",
+        "libbpf_android",
+        "libbpf",
+        "libbase",
+        "libnetdutils",
+        "libbpf_bcc",
+    ],
+}
+
+prebuilt_etc {
+    name: "filter_loader.rc",
+    src: "filter_loader.rc",
+    sub_dir: "init", // Place it in /system/etc/init/
+}
+
