@@ -52,6 +52,26 @@ bool loadAndPinBpfProgram(const std::string& bpf_file, const std::string& prog_n
         }
         ALOGI("filterLoader: Successfully opened BPF object file: %s", bpf_file.c_str());
 
+	struct bpf_map *map;
+    	bpf_object__for_each_map(map, obj_ptr.get()) {
+        	const char* map_name = bpf_map__name(map);
+        	char pin_path_map[256];
+        	snprintf(pin_path_map, sizeof(pin_path_map), "/sys/fs/bpf/map_%s", map_name);
+
+        	// Check if the map is already pinned
+        	int pinned_map_fd = bpf_obj_get(pin_path_map);
+        	if (pinned_map_fd >= 0) {
+            		// If it exists, tell libbpf to use it instead of creating a new one.
+            		if (bpf_map__reuse_fd(map, pinned_map_fd) != 0) {
+                		ALOGE("filterLoader: Failed to reuse pinned map at %s", pin_path_map);
+                		close(pinned_map_fd); // Close the fd we opened
+                		return false;
+            		}
+            		ALOGI("filterLoader: Reusing existing map '%s' from %s", map_name, pin_path_map);
+            		close(pinned_map_fd); // libbpf duplicates the fd, so we can close ours.
+        	}
+    	}
+
         // Find the BPF program by its name within the object file.
         bpf_program* prog = bpf_object__find_program_by_name(obj_ptr.get(), prog_name.c_str());
         if (!prog) {
@@ -80,21 +100,21 @@ bool loadAndPinBpfProgram(const std::string& bpf_file, const std::string& prog_n
 
 
         // Iterate over all maps in the BPF object and pin them.
-        struct bpf_map *map;
         bpf_object__for_each_map(map, obj_ptr.get()) {
             const char* map_name = bpf_map__name(map);
             char pin_path_map[256];
 
-            snprintf(pin_path_map, sizeof(pin_path_map), "/sys/fs/bpf/map_%s_%s", prog_name.c_str(), map_name);
+            snprintf(pin_path_map, sizeof(pin_path_map), "/sys/fs/bpf/map_%s", map_name);
 
-            int err = bpf_map__pin(map, pin_path_map);
-            if (err) {
-                // We'll log an error but continue, treating map pinning failure as non-fatal for other programs.
-                ALOGE("filterLoader: Error: failed to pin map '%s' at '%s': %s\n",
-                        map_name, pin_path_map);
-            } else {
-                ALOGE("filterLoader: Successfully pinned map '%s' to %s", map_name, pin_path_map);
-            }
+	    struct stat st;
+        	if (stat(pin_path_map, &st) == -1 && errno == ENOENT) {
+            	// Map is not pinned, so pin it now.
+            	if (bpf_map__pin(map, pin_path_map) != 0) {
+                	ALOGE("filterLoader: Error: failed to pin map '%s' at '%s'", map_name, pin_path_map);
+            	} else {
+                	ALOGI("filterLoader: Successfully pinned new map '%s' to %s", map_name, pin_path_map);
+            		}
+        	}
         }
 
 	const char * pin_path = pin_path_prog.c_str();
@@ -201,4 +221,3 @@ int main() {
 
     return 0;
 }
-
