@@ -11,10 +11,10 @@ index 9eb985036088..ffff848da684 100644
              export_shared_lib_headers: [
                  // our headers include libnativewindow's public headers
 diff --git a/core/jni/com_android_internal_os_Zygote.cpp b/core/jni/com_android_internal_os_Zygote.cpp
-index 344cb44c26af..17bb729f6051 100644
+index 344cb44c26af..be90261d9045 100644
 --- a/core/jni/com_android_internal_os_Zygote.cpp
 +++ b/core/jni/com_android_internal_os_Zygote.cpp
-@@ -92,6 +92,105 @@
+@@ -92,6 +92,146 @@
  extern "C" void android_reset_stack_guards();
  #endif
  
@@ -32,9 +32,55 @@ index 344cb44c26af..17bb729f6051 100644
 +#include <cstdarg>
 +#include <cstdio>
 +
-+// Defining a BPF program type for seccomp filters.
-+constexpr int BPF_PROG_TYPE_SECCOMP = 32;
++std::vector<int> prepareBpfFileDescriptors(const std::vector<std::string>& prog_names) {
++    std::vector<int> fds;
 +
++    for (const auto& prog_name : prog_names) {
++	std::string pin_path_str = "/sys/fs/bpf/prog_" + prog_name;
++        const char* pin_path_prog = pin_path_str.c_str();
++        int prog_fd = bpf_obj_get(pin_path_prog);
++        if (prog_fd < 0) {
++                ALOGE("filterAttach: Failed to get program file descriptor for %s: %s", pin_path_prog, strerror(errno));
++                
++		for (int fd : fds) {
++                	close(fd);
++            	}
++
++		return {};
++        }
++	ALOGI("filterAttach: Successfully got FD %d for %s", prog_fd, pin_path_str.c_str());
++        fds.push_back(prog_fd);
++    }
++
++    return fds;
++}
++
++bool attachBpfFilters(const std::vector<int>& prog_fds) {
++    if (prog_fds.empty()) {
++        ALOGE("filterAttach failed: The provided file descriptor list is empty.");
++        return false;
++    }
++
++    bool all_successful = true;
++
++    for (int prog_fd : prog_fds) {
++	if (syscall(SYS_seccomp, SECCOMP_SET_MODE_FILTER_EXTENDED, 0, &prog_fd) != 0) {
++           	ALOGE("filterAttach: Failed to attach seccomp filter for FD %d: %s", prog_fd, strerror(errno));
++            	all_successful = false;
++        } else {
++            ALOGI("filterAttach:Successfully attached seccomp filter for FD %d", prog_fd);
++        }
++	close(prog_fd);
++    }
++
++    if (all_successful) {
++        ALOGI("filterAttach: All seccomp filters attached successfully!");
++    } else {
++        ALOGE("filterAttach: One or more seccomp filters failed to attach.");
++    }
++
++    return all_successful;
++}
 +
 +/**
 + * @brief attaches seccomp filter bpf program.
@@ -47,24 +93,24 @@ index 344cb44c26af..17bb729f6051 100644
 +	const char* pin_path_prog = pin_path_str.c_str();
 +	int prog_fd = bpf_obj_get(pin_path_prog);
 +        if (prog_fd < 0) {
-+		ALOGE("filterLoader: Failed to get program file descriptor for %s: %s", pin_path_prog, strerror(errno));
++		ALOGE("filterAttach: Failed to get program file descriptor for %s: %s", pin_path_prog, strerror(errno));
 +		return false;
 +        }
 +	
-+	ALOGI("filterLoader: Attaching seccomp filter...");
++	ALOGI("filterAttach: Attaching seccomp filter...");
 +        
 +	if (syscall(SYS_seccomp, SECCOMP_SET_MODE_FILTER_EXTENDED, 0, &prog_fd) != 0) {
-+		ALOGE("filterLoader: Failed to attach seccomp filter.");
++		ALOGE("filterAttach: Failed to attach seccomp filter.");
 +		return false;
 +        }
 +
-+	ALOGI("filterLoader: Seccomp filter attached successfully!");
++	ALOGI("filterAttach: Seccomp filter attached successfully!");
 +	
 +    return true; 
 +}
 +
 +
-+int applyFilterForChrome() {
++std::vector<int> prepareSifterBpfFileDescriptors() {
 +
 +    const std::vector<std::string> prog_names = {
 +        "filter_seq",
@@ -99,47 +145,50 @@ index 344cb44c26af..17bb729f6051 100644
 +    	"filter_ioctl_KBASE_IOCTL_MEM_QUERY"
 +    };
 +
++    /*
 +    unsigned long success_count = 0;
 +    for (size_t i = 0; i < prog_names.size(); ++i) {
 +        if (attachBpfProgram(prog_names[i])) {
 +            success_count++;
 +        }
 +    }
++    */
 +
-+    ALOGI("filterLoader: Finished processing all BPF programs.");
-+    ALOGI("filterLoader: Successfully loaded and pinned %zu out of %zu programs.", success_count, prog_names.size());
-+
-+    if (success_count != prog_names.size()) {
-+        return 1; 
-+    }
-+
-+    return 0;
++    return prepareBpfFileDescriptors(prog_names);
 +}
 +//sifter
 +
  namespace {
  
  // TODO (chriswailes): Add a function to initialize native Zygote data.
-@@ -1910,6 +2009,14 @@ static void SpecializeCommon(JNIEnv* env, uid_t uid, gid_t gid, jintArray gids,
+@@ -1910,6 +2050,14 @@ static void SpecializeCommon(JNIEnv* env, uid_t uid, gid_t gid, jintArray gids,
  
      auto se_info = extract_fn(managed_se_info);
      auto nice_name = extract_fn(managed_nice_name);
 +
-+    //sifter
-+    if (nice_name && strcmp(nice_name->c_str(), "com.android.chrome") == 0) {
-+	 ALOGI("filterLoader: starting loading process for %s", nice_name->c_str());
-+     	 applyFilterForChrome();
-+    }
-+    //sifter -end
++    std::vector<int> prog_fds;
++
++    //if (nice_name && strcmp(nice_name->c_str(), "net.kishonti.gfxbench.v50000.corporate") == 0) {
++         ALOGI("filterAttach: Getting filter prog fds for %s", nice_name->c_str());
++	 prog_fds= prepareSifterBpfFileDescriptors();
++    //}
 +
      auto instruction_set = extract_fn(managed_instruction_set);
      auto app_data_dir = extract_fn(managed_app_data_dir);
  
-@@ -2187,6 +2294,7 @@ static void SpecializeCommon(JNIEnv* env, uid_t uid, gid_t gid, jintArray gids,
-     // Reset the process priority to the default value.
-     setpriority(PRIO_PROCESS, 0, PROCESS_PRIORITY_DEFAULT);
+@@ -2026,6 +2174,15 @@ static void SpecializeCommon(JNIEnv* env, uid_t uid, gid_t gid, jintArray gids,
+     // privileged syscalls used below still need to be accessible in app process.
+     SetUpSeccompFilter(uid, is_child_zygote);
  
++    //sifter 
++     
++    //if (nice_name && strcmp(nice_name->c_str(), "net.kishonti.gfxbench.v50000.corporate") == 0) {
++        ALOGI("filterAttach: starting attaching process for %s", nice_name->c_str());
++        attachBpfFilters(prog_fds);
++    //}
++    
++    //sifter -end
 +
-     if (env->ExceptionCheck()) {
-         fail_fn("Error calling post fork hooks.");
-     }
+     // Must be called before losing the permission to set scheduler policy.
+     SetSchedulerPolicy(fail_fn, is_top_app);
+ 

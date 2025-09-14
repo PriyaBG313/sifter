@@ -3,5 +3,6 @@ service filter_loader /system/bin/filterLoader
     user root
     group root
     oneshot
-    seclabel u:r:su:s0
+    seclabel u:r:bpfloader:s0
     console
+
