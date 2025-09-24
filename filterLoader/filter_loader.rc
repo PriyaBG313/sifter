@@ -1,8 +1,0 @@
-service filter_loader /system/bin/filterLoader
-    class main
-    user root
-    group root
-    oneshot
-    seclabel u:r:bpfloader:s0
-    console
-
